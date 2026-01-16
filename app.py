@@ -262,3 +262,127 @@ st.download_button(
     file_name="data_used.csv",
     mime="text/csv",
 )
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+
+st.divider()
+st.header("📌 Phân tích đa biến (nhiều biến độc lập)")
+
+all_cols = df.columns.tolist()
+
+y_multi = st.sidebar.selectbox("Biến phụ thuộc (Y)", all_cols, key="y_multi")
+x_multi = st.sidebar.multiselect("Biến độc lập (X1, X2, ...)", [c for c in all_cols if c != y_multi], key="x_multi")
+
+type_options2 = ["Tự động", "Định lượng (numeric)", "Phân loại (categorical)"]
+st.sidebar.markdown("**Ép kiểu nếu cần (đa biến)**")
+y_force2 = st.sidebar.selectbox("Kiểu Y (đa biến)", type_options2, index=0, key="y_force2")
+
+if len(x_multi) == 0:
+    st.info("Chọn ít nhất 1 biến độc lập ở thanh bên trái để chạy mô hình.")
+    st.stop()
+
+# --- helper: auto detect type ---
+def auto_type(series: pd.Series, forced: str):
+    if forced == "Định lượng (numeric)":
+        return "numeric"
+    if forced == "Phân loại (categorical)":
+        return "categorical"
+    # auto
+    return "categorical" if is_categorical(series) else "numeric"
+
+y_type = auto_type(df[y_multi], y_force2)
+
+# Build a temp dataframe with selected columns only + drop NA
+use_cols = [y_multi] + x_multi
+tmp = df[use_cols].copy()
+
+# Convert Y numeric if needed
+if y_type == "numeric":
+    tmp[y_multi] = pd.to_numeric(tmp[y_multi], errors="coerce")
+
+tmp = tmp.dropna()
+st.caption(f"Số dòng dùng cho mô hình (sau khi loại NA theo {len(use_cols)} biến): {tmp.shape[0]}")
+
+# Decide model based on Y
+model_name = None
+
+if y_type == "numeric":
+    model_name = "Hồi quy tuyến tính (OLS)"
+else:
+    # treat Y as categorical
+    y_nunique = tmp[y_multi].nunique()
+    if y_nunique == 2:
+        model_name = "Hồi quy logistic nhị phân (Logit)"
+    else:
+        model_name = "Hồi quy logistic đa danh (Multinomial - MNLogit)"
+
+st.success(f"✅ Gợi ý mô hình: **{model_name}**")
+
+# Build formula: use C(var) for categorical predictors (auto)
+terms = []
+for x in x_multi:
+    if is_categorical(tmp[x]):
+        terms.append(f"C(Q('{x}'))")  # safe for spaces/special chars
+    else:
+        terms.append(f"Q('{x}')")
+
+y_term = f"Q('{y_multi}')" if y_type == "numeric" else f"C(Q('{y_multi}'))"
+formula = f"{y_term} ~ " + " + ".join(terms)
+
+with st.expander("Xem công thức mô hình (formula)"):
+    st.code(formula)
+
+run_model = st.button("Chạy mô hình")
+
+if run_model:
+    try:
+        if model_name.startswith("Hồi quy tuyến tính"):
+            fit = smf.ols(formula=formula, data=tmp).fit()
+            st.subheader("Kết quả OLS")
+            st.write(fit.summary())
+
+        elif "nhị phân" in model_name:
+            # For binary logit, we need Y numeric 0/1
+            y_cat = tmp[y_multi].astype("category")
+            if len(y_cat.cat.categories) != 2:
+                st.error("Y không phải nhị phân sau khi xử lý. Hãy kiểm tra dữ liệu.")
+                st.stop()
+            # Map to 0/1
+            mapping = {y_cat.cat.categories[0]: 0, y_cat.cat.categories[1]: 1}
+            tmp2 = tmp.copy()
+            tmp2["_y01_"] = tmp2[y_multi].map(mapping)
+
+            # rebuild formula with _y01_ numeric
+            formula2 = f"_y01_ ~ " + " + ".join(terms)
+            fit = smf.logit(formula=formula2, data=tmp2).fit(disp=0)
+
+            st.subheader("Kết quả Logistic (OR)")
+            params = fit.params
+            conf = fit.conf_int()
+            or_table = pd.DataFrame({
+                "OR": np.exp(params),
+                "CI 2.5%": np.exp(conf[0]),
+                "CI 97.5%": np.exp(conf[1]),
+                "p-value": fit.pvalues
+            }).sort_values("p-value")
+            st.dataframe(or_table, use_container_width=True)
+
+        else:
+            # Multinomial
+            # MNLogit requires numeric codes for Y categories
+            tmp2 = tmp.copy()
+            tmp2["_ycat_"] = tmp2[y_multi].astype("category")
+            tmp2["_ycode_"] = tmp2["_ycat_"].cat.codes
+
+            formula2 = f"_ycode_ ~ " + " + ".join(terms)
+            fit = smf.mnlogit(formula=formula2, data=tmp2).fit(disp=0)
+
+            st.subheader("Kết quả Multinomial (hệ số)")
+            st.write(fit.summary())
+
+            st.caption("Gợi ý: Multinomial thường diễn giải theo nhóm tham chiếu; nếu bạn muốn bảng RRR (exp(coef)), mình có thể bổ sung.")
+
+    except Exception as e:
+        st.error(f"Lỗi khi chạy mô hình: {e}")
+        st.info("Mẹo: kiểm tra biến phân loại có quá nhiều mức, dữ liệu bị ký tự lạ, hoặc cỡ mẫu quá nhỏ.")
+
