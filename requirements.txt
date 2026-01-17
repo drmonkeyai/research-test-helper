@@ -1,6 +1,10 @@
 streamlit
 pandas
 numpy
-scipy
 plotly
 statsmodels
+scipy
+openpyxl
+xlrd>=2.0.1
+pyreadstat
+pyreadr
