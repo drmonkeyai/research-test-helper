@@ -25,6 +25,36 @@ APP_TITLE = "Hỗ trợ nghiên cứu cho bác sĩ gia đình"
 
 
 # =========================
+# UI CSS: big step buttons
+# =========================
+st.markdown(
+    """
+    <style>
+    /* Làm nút to hơn */
+    div.stButton > button {
+        width: 100%;
+        padding: 16px 14px !important;
+        border-radius: 14px !important;
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        border: 1px solid rgba(0,0,0,0.12) !important;
+        box-shadow: 0 1px 8px rgba(0,0,0,0.06) !important;
+    }
+    /* Caption nhỏ dưới nút */
+    .step-caption {
+        color: #6b7280;
+        font-size: 13px;
+        margin-top: -6px;
+        margin-bottom: 4px;
+        line-height: 1.25rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# =========================
 # Helpers: safe name + hashing
 # =========================
 def _safe_name(name: str) -> str:
@@ -56,6 +86,9 @@ def read_csv_safely(uploaded_file) -> pd.DataFrame:
 
 
 def _read_via_tempfile(raw: bytes, suffix: str, reader_fn):
+    """
+    Nhiều hàm (read_spss/read_stata/pyreadr) cần path -> dùng file tạm.
+    """
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -117,26 +150,18 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
         except Exception as e:
             raise RuntimeError("Thiếu thư viện pyreadr để đọc .rds. Hãy cài: pip install pyreadr") from e
 
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".rds", delete=False) as tmp:
-                tmp.write(raw)
-                tmp_path = tmp.name
-
-            res = pyreadr.read_r(tmp_path)
+        def _read_rds(path: str):
+            res = pyreadr.read_r(path)
             out: Dict[str, pd.DataFrame] = {}
             for k, v in res.items():
                 if isinstance(v, pd.DataFrame):
                     out[str(k) if k else "data"] = v
-            if not out:
-                raise RuntimeError("File .rds không chứa DataFrame (hoặc object không hỗ trợ).")
             return out
-        finally:
-            if tmp_path:
-                try:
-                    Path(tmp_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
+
+        out = _read_via_tempfile(raw, ".rds", _read_rds)
+        if not out:
+            raise RuntimeError("File .rds không chứa DataFrame (hoặc object không hỗ trợ).")
+        return out
 
     raise RuntimeError(f"Định dạng {ext} chưa được hỗ trợ.")
 
@@ -511,7 +536,9 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
         r, p = stats.pearsonr(tmp[x].to_numpy(), tmp[y].to_numpy())
         pny = normality_pvalue(tmp[y].to_numpy())
         pnx = normality_pvalue(tmp[x].to_numpy())
-        out = pd.DataFrame({"Chỉ số": ["Pearson r", "p-value", "n", "Shapiro p(Y)", "Shapiro p(X)"], "Giá trị": [r, p, tmp.shape[0], pny, pnx]})
+        out = pd.DataFrame(
+            {"Chỉ số": ["Pearson r", "p-value", "n", "Shapiro p(Y)", "Shapiro p(X)"], "Giá trị": [r, p, tmp.shape[0], pny, pnx]}
+        )
         interp = "Diễn giải: r gần 0 → yếu; gần ±1 → mạnh. p-value nhỏ gợi ý liên quan tuyến tính có ý nghĩa."
         return out, interp
 
@@ -523,7 +550,9 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
         rho, p = stats.spearmanr(tmp[x].to_numpy(), tmp[y].to_numpy())
         pny = normality_pvalue(tmp[y].to_numpy())
         pnx = normality_pvalue(tmp[x].to_numpy())
-        out = pd.DataFrame({"Chỉ số": ["Spearman rho", "p-value", "n", "Shapiro p(Y)", "Shapiro p(X)"], "Giá trị": [rho, p, tmp.shape[0], pny, pnx]})
+        out = pd.DataFrame(
+            {"Chỉ số": ["Spearman rho", "p-value", "n", "Shapiro p(Y)", "Shapiro p(X)"], "Giá trị": [rho, p, tmp.shape[0], pny, pnx]}
+        )
         interp = "Diễn giải: Spearman đánh giá liên quan đơn điệu (không cần chuẩn), phù hợp khi dữ liệu không chuẩn/ordinal."
         return out, interp
 
@@ -617,19 +646,14 @@ def ols_table(fit) -> pd.DataFrame:
 def logit_or_table(fit) -> pd.DataFrame:
     conf = fit.conf_int()
     out = pd.DataFrame(
-        {
-            "OR": np.exp(fit.params),
-            "CI 2.5%": np.exp(conf[0]),
-            "CI 97.5%": np.exp(conf[1]),
-            "p-value": fit.pvalues,
-        }
+        {"OR": np.exp(fit.params), "CI 2.5%": np.exp(conf[0]), "CI 97.5%": np.exp(conf[1]), "p-value": fit.pvalues}
     )
     out.index.name = "Biến"
     return out.sort_values("p-value")
 
 
 # =========================
-# Session state: datasets + dedupe
+# Session state: datasets + dedupe + stepper
 # =========================
 if "datasets" not in st.session_state:
     st.session_state["datasets"] = {}  # key -> df
@@ -654,6 +678,9 @@ if "last_result" not in st.session_state:
     st.session_state["last_result"] = None
 if "last_run_meta" not in st.session_state:
     st.session_state["last_run_meta"] = None
+
+if "active_step" not in st.session_state:
+    st.session_state["active_step"] = 1  # 1=Data,2=Choose,3=Results
 
 
 def _register_dataset(key: str, df: pd.DataFrame, hashes: List[str]):
@@ -681,7 +708,7 @@ st.markdown(
     <div style="padding: 0.25rem 0 0.5rem 0;">
       <h1 style="margin:0;">{APP_TITLE}</h1>
       <div style="color:#6b7280;">
-        Sidebar quản lý dữ liệu • Tabs theo bước • 1 X → kiểm định (có kiểm tra giả định) • nhiều X → mô hình
+        Upload dữ liệu → chọn biến → kiểm định (1 X) hoặc mô hình (nhiều X) → kết quả + giải thích
       </div>
     </div>
     """,
@@ -706,9 +733,11 @@ with st.sidebar:
             raw = up.getvalue()
             file_hash = _file_sha256(raw)
 
+            # tránh rerun add lại
             if st.session_state["last_upload_hash"] != file_hash:
                 st.session_state["last_upload_hash"] = file_hash
 
+                # file đã có
                 if file_hash in st.session_state["hash_to_key"]:
                     existed_key = st.session_state["hash_to_key"][file_hash]
                     st.session_state["active_name"] = existed_key
@@ -716,6 +745,7 @@ with st.sidebar:
                 else:
                     tables = read_file_safely(up)
 
+                    # nhiều sheet/object
                     if len(tables) > 1:
                         st.session_state["pending_tables"] = tables
                         st.session_state["pending_fname"] = up.name
@@ -732,12 +762,13 @@ with st.sidebar:
 
                         df_hash = _df_sha256(df_new)
                         _register_dataset(key, df_new, hashes=[file_hash, df_hash])
+                        st.session_state["active_step"] = 1
                         st.success(f"Đã tải: {key} ({df_new.shape[0]}x{df_new.shape[1]})")
 
         except Exception as e:
             st.error(f"Không đọc được file: {e}")
 
-    # pending
+    # pending sheet/object
     if st.session_state["pending_tables"] is not None:
         st.markdown("### Chọn sheet/object")
         tables = st.session_state["pending_tables"]
@@ -770,6 +801,7 @@ with st.sidebar:
                         hashes.append(pending_file_hash)
 
                     _register_dataset(key, df_new, hashes=hashes)
+                    st.session_state["active_step"] = 1
                     st.success(f"Đã nhập: {key} ({df_new.shape[0]}x{df_new.shape[1]})")
 
                 st.session_state["pending_tables"] = None
@@ -838,6 +870,7 @@ with st.sidebar:
             st.session_state["active_name"] = remaining[0] if remaining else None
             st.session_state["last_result"] = None
             st.session_state["last_run_meta"] = None
+            st.session_state["active_step"] = 1
             st.rerun()
 
     with c2:
@@ -852,53 +885,46 @@ with st.sidebar:
             st.session_state["last_upload_hash"] = None
             st.session_state["last_result"] = None
             st.session_state["last_run_meta"] = None
+            st.session_state["active_step"] = 1
             st.rerun()
 
 
 # =========================
-# Main: Tabs
+# Data in main
 # =========================
 df = st.session_state["datasets"][st.session_state["active_name"]]
 cols = df.columns.tolist()
 
-tab_data, tab_choose, tab_result = st.tabs(["1) Dữ liệu", "2) Chọn biến", "3) Kết quả"])
-
 
 # =========================
-# Tab 1: Data
+# Stepper Buttons (BIG)
 # =========================
-with tab_data:
-    st.subheader("📌 Tổng quan")
-    summ = overall_summary(df)
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Số dòng", summ["Số dòng"])
-    c2.metric("Số biến", summ["Số biến"])
-    c3.metric("Định lượng", summ["Biến định lượng"])
-    c4.metric("Phân loại", summ["Biến phân loại"])
-    c5.metric("Ô thiếu (NA)", summ["Ô thiếu (NA)"])
+st.markdown("### 🧭 Các bước thao tác")
 
-    st.markdown("### 👀 Xem nhanh dữ liệu")
-    st.dataframe(df.head(30), use_container_width=True, height=260)
+c1, c2, c3 = st.columns(3, gap="medium")
 
-    st.markdown("### 🧾 Liệt kê biến & đặc tính")
-    var_rows = [summarize_variable(df, c) for c in cols]
-    var_df = pd.DataFrame(var_rows)
+with c1:
+    t = "primary" if st.session_state["active_step"] == 1 else "secondary"
+    if st.button("1) 📄 Dữ liệu", type=t, use_container_width=True):
+        st.session_state["active_step"] = 1
+        st.rerun()
+    st.markdown('<div class="step-caption">Tổng quan • xem bảng • danh sách biến</div>', unsafe_allow_html=True)
 
-    v1, v2 = st.columns([1.2, 1.0])
-    with v1:
-        q = st.text_input("Tìm nhanh tên biến", value="", placeholder="vd: age, weight...")
-    with v2:
-        filter_opt = st.selectbox("Lọc nhanh", ["Tất cả", "Chỉ định lượng", "Chỉ phân loại"], index=0)
+with c2:
+    t = "primary" if st.session_state["active_step"] == 2 else "secondary"
+    if st.button("2) 🎯 Chọn biến", type=t, use_container_width=True):
+        st.session_state["active_step"] = 2
+        st.rerun()
+    st.markdown('<div class="step-caption">Chọn Y/X • xem gợi ý • bấm Run</div>', unsafe_allow_html=True)
 
-    if q.strip():
-        var_df = var_df[var_df["Tên biến"].str.contains(q.strip(), case=False, na=False)].copy()
+with c3:
+    t = "primary" if st.session_state["active_step"] == 3 else "secondary"
+    if st.button("3) 📌 Kết quả", type=t, use_container_width=True):
+        st.session_state["active_step"] = 3
+        st.rerun()
+    st.markdown('<div class="step-caption">Bảng kết quả • biểu đồ • diễn giải</div>', unsafe_allow_html=True)
 
-    if filter_opt == "Chỉ định lượng":
-        var_df = var_df[var_df["Đặc tính biến"].str.contains("Định lượng", na=False)]
-    elif filter_opt == "Chỉ phân loại":
-        var_df = var_df[var_df["Đặc tính biến"].str.contains("Phân loại", na=False)]
-
-    st.dataframe(var_df, use_container_width=True, height=420)
+st.divider()
 
 
 # =========================
@@ -923,6 +949,7 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
         st.session_state["last_result"] = {"table": result_df, "interp": interp}
         return
 
+    # model
     tmp_for_suggest = df.copy()
     if y_force == "Định lượng (numeric)":
         tmp_for_suggest[y] = coerce_numeric(tmp_for_suggest[y])
@@ -966,9 +993,49 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
 
 
 # =========================
-# Tab 2: Choose variables
+# STEP 1: Data view
 # =========================
-with tab_choose:
+if st.session_state["active_step"] == 1:
+    st.subheader("📄 Dữ liệu")
+
+    summ = overall_summary(df)
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Số dòng", summ["Số dòng"])
+    m2.metric("Số biến", summ["Số biến"])
+    m3.metric("Định lượng", summ["Biến định lượng"])
+    m4.metric("Phân loại", summ["Biến phân loại"])
+    m5.metric("Ô thiếu (NA)", summ["Ô thiếu (NA)"])
+
+    st.markdown("### 👀 Xem nhanh dữ liệu")
+    st.dataframe(df.head(30), use_container_width=True, height=260)
+
+    st.markdown("### 🧾 Liệt kê biến & đặc tính")
+    var_rows = [summarize_variable(df, c) for c in cols]
+    var_df = pd.DataFrame(var_rows)
+
+    v1, v2 = st.columns([1.2, 1.0])
+    with v1:
+        q = st.text_input("Tìm nhanh tên biến", value="", placeholder="vd: age, weight...")
+    with v2:
+        filter_opt = st.selectbox("Lọc nhanh", ["Tất cả", "Chỉ định lượng", "Chỉ phân loại"], index=0)
+
+    if q.strip():
+        var_df = var_df[var_df["Tên biến"].str.contains(q.strip(), case=False, na=False)].copy()
+
+    if filter_opt == "Chỉ định lượng":
+        var_df = var_df[var_df["Đặc tính biến"].str.contains("Định lượng", na=False)]
+    elif filter_opt == "Chỉ phân loại":
+        var_df = var_df[var_df["Đặc tính biến"].str.contains("Phân loại", na=False)]
+
+    st.dataframe(var_df, use_container_width=True, height=420)
+
+    st.info("👉 Bấm **2) Chọn biến** để chọn Y/X và chạy kiểm định/mô hình.")
+
+
+# =========================
+# STEP 2: Choose variables
+# =========================
+elif st.session_state["active_step"] == 2:
     st.subheader("🎯 Chọn biến phân tích")
 
     left, right = st.columns([2.2, 1.0], gap="large")
@@ -995,8 +1062,11 @@ with tab_choose:
             if len(levels) == 2:
                 y_event = st.selectbox("Chọn mức coi là 'Sự kiện' (Y=1) (logistic)", options=levels, index=1)
 
+        st.markdown("#### ✅ Gợi ý")
         if len(xs) == 0:
             st.info("Chọn ít nhất 1 biến X.")
+            suggestion = None
+            explanation = None
         else:
             if len(xs) == 1:
                 suggestion, explanation, _ = suggest_single_x_test(df, y, xs[0], y_forced=y_force, x_forced=x_force)
@@ -1010,7 +1080,6 @@ with tab_choose:
                 suggestion, explanation = suggest_model(tmp_for_suggest, y, xs)
                 mode_label = "Mô hình"
 
-            st.markdown("#### ✅ Gợi ý")
             st.write(f"**Chế độ:** {mode_label}")
             st.write(f"**Gợi ý:** {suggestion}")
             with st.expander("Giải thích"):
@@ -1020,6 +1089,7 @@ with tab_choose:
         st.markdown("#### Tóm tắt lựa chọn")
         st.write(f"**Dataset:** {st.session_state['active_name']}")
         st.write(f"**Y:** {y} ({'định lượng' if var_kind(df[y], y_force)=='num' else 'phân loại'})")
+
         if len(xs) == 0:
             st.write("**X:** -")
             st.button("▶️ Run", type="primary", use_container_width=True, disabled=True)
@@ -1028,37 +1098,30 @@ with tab_choose:
                 x1 = xs[0]
                 xk = var_kind(df[x1], x_force)
                 st.write(f"**X:** {x1} ({'định lượng' if xk=='num' else 'phân loại'})")
-                sug, _, _ = suggest_single_x_test(df, y, x1, y_forced=y_force, x_forced=x_force)
-                st.write(f"**Gợi ý:** {sug}")
             else:
                 st.write(f"**X:** {len(xs)} biến")
-                tmp_for_suggest = df.copy()
-                if y_force == "Định lượng (numeric)":
-                    tmp_for_suggest[y] = coerce_numeric(tmp_for_suggest[y])
-                elif y_force == "Phân loại (categorical)":
-                    tmp_for_suggest[y] = tmp_for_suggest[y].astype("string")
-                sug, _ = suggest_model(tmp_for_suggest, y, xs)
-                st.write(f"**Gợi ý:** {sug}")
 
+            st.markdown("---")
             if st.button("▶️ Run", type="primary", use_container_width=True):
                 try:
                     _compute_and_store(y=y, xs=xs, y_force=y_force, x_force=x_force, y_event=y_event)
-                    st.success("Đã chạy. Mở tab **3) Kết quả** để xem.")
+                    st.session_state["active_step"] = 3
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Lỗi khi chạy: {e}")
 
 
 # =========================
-# Tab 3: Results
+# STEP 3: Results
 # =========================
-with tab_result:
+else:
     st.subheader("📌 Kết quả")
 
     meta = st.session_state.get("last_run_meta")
     res = st.session_state.get("last_result")
 
     if not meta or not res:
-        st.info("Chưa có kết quả. Vào tab **2) Chọn biến** và bấm **Run**.")
+        st.info("Chưa có kết quả. Bấm **2) Chọn biến** → chọn Y/X → bấm **Run**.")
     else:
         st.markdown("#### Tóm tắt lần chạy")
         st.write(f"- **Dataset:** {meta.get('dataset')}")
@@ -1083,9 +1146,17 @@ with tab_result:
                     st.dataframe(res["table"], use_container_width=True)
                     st.markdown("### 🔎 Diễn giải")
                     if kind == "ols":
-                        st.write("- Hệ số > 0: Y tăng khi X tăng (giữ các biến khác).\n- p-value < 0.05: thường có ý nghĩa.\n- CI 95% không chứa 0: thường có ý nghĩa.")
+                        st.write(
+                            "- Hệ số > 0: Y tăng khi X tăng (giữ các biến khác).\n"
+                            "- p-value < 0.05: thường có ý nghĩa.\n"
+                            "- CI 95% không chứa 0: thường có ý nghĩa."
+                        )
                     else:
-                        st.write("- OR > 1: tăng odds sự kiện.\n- OR < 1: giảm odds.\n- CI 95% không chứa 1 và p<0.05: thường có ý nghĩa.")
+                        st.write(
+                            "- OR > 1: tăng odds sự kiện.\n"
+                            "- OR < 1: giảm odds.\n"
+                            "- CI 95% không chứa 1 và p<0.05: thường có ý nghĩa."
+                        )
                 else:
                     st.markdown("### 📄 MNLogit Summary")
                     st.write(res["fit"].summary())
@@ -1142,7 +1213,11 @@ with tab_result:
                         if (not is_categorical(data_used[x1])) and (not is_categorical(data_used[y])):
                             fig = px.scatter(data_used, x=x1, y=y, trendline="ols", title=f"{y} ~ {x1} (trendline)")
                         else:
-                            fig = px.box(data_used, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}") if is_categorical(data_used[x1]) else px.scatter(data_used, x=x1, y=y, title=f"{y} theo {x1}")
+                            fig = (
+                                px.box(data_used, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}")
+                                if is_categorical(data_used[x1])
+                                else px.scatter(data_used, x=x1, y=y, title=f"{y} theo {x1}")
+                            )
                         st.plotly_chart(fig, use_container_width=True)
 
                         pred = fit.fittedvalues
