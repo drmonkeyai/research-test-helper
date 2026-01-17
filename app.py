@@ -26,58 +26,42 @@ APP_TITLE = "Hỗ trợ nghiên cứu cho bác sĩ gia đình"
 
 
 # =========================
-# FullHD compact UI + FIX title cut/overlay
+# UI CSS (FullHD compact + FIX overlay + Sticky header)
 # =========================
 st.markdown(
     """
     <style>
-    /* ======= FIX: Safe top area to avoid Streamlit toolbar overlay ======= */
-    :root { --app-top-safe: 64px; }  /* nếu vẫn che, tăng 72px */
+    :root { --app-top-safe: 64px; } /* nếu vẫn che, tăng 72px */
 
-    /* ======= Layout width + padding ======= */
     .block-container{
-        padding-top: calc(var(--app-top-safe) + 0.75rem) !important; /* FIX: không bị che */
+        padding-top: calc(var(--app-top-safe) + 0.70rem) !important;
         padding-bottom: 0.60rem !important;
         padding-left: 0.90rem !important;
         padding-right: 0.90rem !important;
-        max-width: 1600px !important;      /* Full HD */
+        max-width: 1600px !important;  /* Full HD */
     }
 
-    /* ======= Typography (gọn hơn ~80%) ======= */
-    h1 {
-        font-size: 1.70rem !important;
-        margin: 0.0rem 0 0.10rem 0 !important;
-        line-height: 2.05rem !important;
-    }
-    h2 { font-size: 1.25rem !important; margin: 0.35rem 0 0.20rem 0 !important; }
-    h3 { font-size: 1.05rem !important; margin: 0.35rem 0 0.20rem 0 !important; }
-    p, li, label, div { font-size: 0.95rem; }
+    h1{ font-size: 1.95rem !important; font-weight: 900 !important; margin:0.05rem 0 0.15rem 0 !important; }
+    h2{ font-size: 1.25rem !important; margin:0.35rem 0 0.20rem 0 !important; }
+    h3{ font-size: 1.05rem !important; margin:0.30rem 0 0.18rem 0 !important; }
+    p, li, label, div{ font-size: 0.95rem; }
 
-    /* ======= Reduce gaps ======= */
-    div[data-testid="stVerticalBlock"] { gap: 0.28rem; }
-    .stMarkdown { margin-bottom: 0.10rem !important; }
-    .stCaptionContainer { margin-top: -0.18rem !important; }
-
-    /* ======= Widgets spacing ======= */
-    .stSelectbox, .stMultiSelect, .stTextInput, .stFileUploader, .stRadio, .stCheckbox {
-        margin-bottom: 0.15rem !important;
-    }
-
-    /* ======= Divider ======= */
+    div[data-testid="stVerticalBlock"] { gap: 0.26rem; }
+    .stMarkdown { margin-bottom: 0.08rem !important; }
     hr { margin: 0.40rem 0 !important; }
 
-    /* ======= Buttons (gọn hơn) ======= */
+    /* Buttons compact */
     div.stButton > button{
         width: 100%;
         padding: 8px 10px !important;
-        border-radius: 12px !important;
+        border-radius: 14px !important;
         font-size: 14px !important;
-        font-weight: 780 !important;
+        font-weight: 800 !important;
         border: 1px solid rgba(0,0,0,0.10) !important;
         box-shadow: 0 1px 5px rgba(0,0,0,0.06) !important;
     }
 
-    /* ======= Sidebar compact ======= */
+    /* Sidebar compact */
     section[data-testid="stSidebar"] .block-container{
         padding-top: 0.55rem !important;
         padding-left: 0.75rem !important;
@@ -89,12 +73,28 @@ st.markdown(
         font-size: 0.90rem !important;
     }
 
-    /* ======= Dataframes ======= */
-    .stDataFrame { margin-top: 0.10rem !important; }
-
-    /* ======= Caption dưới stepper gọn ======= */
-    [data-testid="stCaptionContainer"] {
-        font-size: 0.80rem !important;
+    /* Sticky: container(border=True) đầu tiên (header + steps) */
+    div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type{
+        position: sticky;
+        top: var(--app-top-safe);
+        z-index: 999;
+        background: rgba(255,255,255,0.96);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(0,0,0,0.10);
+        border-radius: 18px;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.12);
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type > div{
+        padding: 10px 12px !important;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type .subline{
+        color:#6b7280;
+        font-size:0.90rem;
+        margin-top:0.05rem;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type [data-testid="stCaptionContainer"]{
+        font-size: 0.78rem !important;
+        margin-top: -0.22rem !important;
         line-height: 1.05rem !important;
     }
     </style>
@@ -104,7 +104,7 @@ st.markdown(
 
 
 # =========================
-# Helpers: safe name + hashing
+# Helpers: hashing + safe name
 # =========================
 def _safe_name(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]+", "_", str(name).strip())[:80] or "file"
@@ -117,21 +117,6 @@ def _file_sha256(raw: bytes) -> str:
 def _df_sha256(df: pd.DataFrame) -> str:
     h = pd.util.hash_pandas_object(df, index=True).values.tobytes()
     return hashlib.sha256(h).hexdigest()
-
-
-# =========================
-# Read files safely
-# =========================
-def read_csv_safely(uploaded_file) -> pd.DataFrame:
-    raw = uploaded_file.getvalue()
-    encodings = ["utf-8-sig", "utf-8", "cp1258", "cp1252", "latin1"]
-    last_err = None
-    for enc in encodings:
-        try:
-            return pd.read_csv(io.BytesIO(raw), encoding=enc)
-        except Exception as e:
-            last_err = e
-    raise last_err
 
 
 def _read_via_tempfile(raw: bytes, suffix: str, reader_fn):
@@ -149,6 +134,21 @@ def _read_via_tempfile(raw: bytes, suffix: str, reader_fn):
                 pass
 
 
+# =========================
+# Read files safely (CSV/XLSX/XLS/SAV/ZsAV/DTA/RDS)
+# =========================
+def read_csv_safely(uploaded_file) -> pd.DataFrame:
+    raw = uploaded_file.getvalue()
+    encodings = ["utf-8-sig", "utf-8", "cp1258", "cp1252", "latin1"]
+    last_err = None
+    for enc in encodings:
+        try:
+            return pd.read_csv(io.BytesIO(raw), encoding=enc)
+        except Exception as e:
+            last_err = e
+    raise last_err
+
+
 def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
     name = uploaded_file.name
     ext = Path(name).suffix.lower()
@@ -158,7 +158,10 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
         return {"data": read_csv_safely(uploaded_file)}
 
     if ext == ".xlsx":
-        xls = pd.ExcelFile(io.BytesIO(raw), engine="openpyxl")
+        try:
+            xls = pd.ExcelFile(io.BytesIO(raw), engine="openpyxl")
+        except Exception as e:
+            raise RuntimeError("Không đọc được .xlsx. Hãy cài openpyxl: pip install openpyxl") from e
         out: Dict[str, pd.DataFrame] = {}
         for sh in xls.sheet_names:
             out[str(sh)] = pd.read_excel(xls, sheet_name=sh)
@@ -166,7 +169,10 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
 
     if ext == ".xls":
         # cần xlrd>=2.0.1
-        xls = pd.ExcelFile(io.BytesIO(raw), engine="xlrd")
+        try:
+            xls = pd.ExcelFile(io.BytesIO(raw), engine="xlrd")
+        except Exception as e:
+            raise RuntimeError("Không đọc được .xls. Hãy cài xlrd>=2.0.1: pip install xlrd>=2.0.1") from e
         out: Dict[str, pd.DataFrame] = {}
         for sh in xls.sheet_names:
             out[str(sh)] = pd.read_excel(xls, sheet_name=sh, engine="xlrd")
@@ -320,18 +326,18 @@ def assumption_report_num_by_group(df: pd.DataFrame, y_num: str, group_cat: str)
     return {"levels": levels, "n": ns, "normality_p": norm_p, "levene_p": lev_p, "total_n": int(tmp.shape[0])}
 
 
-def _norm_ok(report: dict, alpha: float = 0.05) -> bool:
-    for lv, n in report["n"].items():
+def _norm_ok(rep: dict, alpha: float = 0.05) -> bool:
+    for lv, n in rep["n"].items():
         if n < 3:
             return False
-        p = report["normality_p"].get(lv, float("nan"))
+        p = rep["normality_p"].get(lv, float("nan"))
         if np.isnan(p) or p < alpha:
             return False
     return True
 
 
-def _var_ok(report: dict, alpha: float = 0.05) -> bool:
-    p = report.get("levene_p", float("nan"))
+def _var_ok(rep: dict, alpha: float = 0.05) -> bool:
+    p = rep.get("levene_p", float("nan"))
     return (not np.isnan(p)) and (p >= alpha)
 
 
@@ -448,6 +454,9 @@ def _cramers_v(tab: pd.DataFrame) -> float:
 
 
 def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple[pd.DataFrame, str]:
+    if test_kind == "none":
+        raise ValueError("Không có kiểm định phù hợp / không đủ dữ liệu.")
+
     if test_kind == "chisq":
         tmp = df[[y, x]].dropna()
         tab = pd.crosstab(tmp[y].astype(str), tmp[x].astype(str))
@@ -467,6 +476,7 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
         interp = "Diễn giải: p nhỏ → gợi ý liên quan. OR diễn giải theo nhóm tham chiếu."
         return out, interp
 
+    # Numeric by groups (y numeric, x cat)
     if test_kind in ("ttest_student", "ttest_welch", "mwu", "anova", "kruskal"):
         tmp = df[[y, x]].dropna().copy()
         tmp[y] = coerce_numeric(tmp[y])
@@ -474,6 +484,7 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
         groups = tmp[x].astype(str)
         levels = sorted(groups.unique().tolist())
         arrays = [tmp.loc[groups == lv, y].to_numpy() for lv in levels]
+
         rep = assumption_report_num_by_group(df, y_num=y, group_cat=x)
         assump = _assumption_text(rep)
 
@@ -509,6 +520,7 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
             interp = f"{assump}\nDiễn giải: dùng khi không đạt giả định; nếu có ý nghĩa nên post-hoc."
             return out, interp
 
+    # Swapped: y categorical defines groups, x numeric
     if test_kind.endswith("_swapped"):
         tmp = df[[y, x]].dropna().copy()
         tmp[x] = coerce_numeric(tmp[x])
@@ -516,8 +528,10 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
         groups = tmp[y].astype(str)
         levels = sorted(groups.unique().tolist())
         arrays = [tmp.loc[groups == lv, x].to_numpy() for lv in levels]
+
         rep = assumption_report_num_by_group(df, y_num=x, group_cat=y)
         assump = _assumption_text(rep)
+
         base = test_kind.replace("_swapped", "")
 
         if base in ("ttest_student", "ttest_welch"):
@@ -528,7 +542,7 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
             tstat, p = stats.ttest_ind(a, b, equal_var=equal_var, nan_policy="omit")
             d = _cohens_d(a, b)
             out = pd.DataFrame({"Chỉ số": ["t", "p-value", "Cohen's d"], "Giá trị": [tstat, p, d]})
-            interp = f"{assump}\nDiễn giải: p nhỏ → trung bình khác nhau giữa 2 nhóm (theo Y)."
+            interp = f"{assump}\nDiễn giải: p nhỏ → trung bình khác nhau giữa 2 nhóm."
             return out, interp
 
         if base == "mwu":
@@ -572,7 +586,7 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
         interp = "Diễn giải: Spearman đánh giá liên quan đơn điệu, phù hợp khi dữ liệu không chuẩn/ordinal."
         return out, interp
 
-    raise ValueError("Không có kiểm định phù hợp (test_kind=none).")
+    raise ValueError("Không chạy được kiểm định (test_kind không hợp lệ).")
 
 
 # =========================
@@ -640,13 +654,10 @@ def run_model(formula: str, data_used: pd.DataFrame, model_kind: str):
 
     if kind == "ols":
         return smf.ols(formula=formula, data=data_used).fit(), note
-
     if kind == "logit":
         return smf.logit(formula=formula, data=data_used).fit(disp=0), note
-
     if kind == "mnlogit":
         return smf.mnlogit(formula=formula, data=data_used).fit(disp=0), note
-
     raise ValueError("Unknown model kind")
 
 
@@ -674,7 +685,7 @@ def logit_or_table(fit) -> pd.DataFrame:
 
 
 # =========================
-# OLS equation + detailed interpretation
+# Equation + detailed interpretation (OLS + Logit)
 # =========================
 def format_ols_equation(fit, y_name: str) -> str:
     params = fit.params.to_dict()
@@ -685,20 +696,17 @@ def format_ols_equation(fit, y_name: str) -> str:
     for term, b in params.items():
         if term == "Intercept":
             continue
-
         m_num = re.match(r"Q\('(.+)'\)", term)
         if m_num:
             var = m_num.group(1)
             parts.append(f"{float(b):+.4f}*{var}")
             continue
-
         m_cat = re.match(r"C\(Q\('(.+)'\)\)\[T\.(.+)\]", term)
         if m_cat:
             var = m_cat.group(1)
             lv = m_cat.group(2)
             parts.append(f"{float(b):+.4f}*I({var}={lv})")
             continue
-
         parts.append(f"{float(b):+.4f}*({term})")
 
     return f"**Phương trình (OLS):**  Ŷ({y_name}) = " + " ".join(parts)
@@ -737,8 +745,49 @@ def explain_ols_effects(fit, y_name: str, alpha: float = 0.05) -> List[str]:
             )
             continue
 
+        lines.append(f"- **{term}**: coef={b:.4f}, p={p:.4g}, CI95%=[{lo:.4f}; {hi:.4f}] → {sig}.")
+    return lines or ["- Không có biến giải thích (chỉ intercept)."]
+
+
+def explain_logit_effects(fit, alpha: float = 0.05) -> List[str]:
+    conf = fit.conf_int()
+    lines: List[str] = []
+    for term in fit.params.index:
+        if term == "Intercept":
+            continue
+        b = float(fit.params[term])
+        p = float(fit.pvalues[term])
+        lo = float(conf.loc[term, 0])
+        hi = float(conf.loc[term, 1])
+
+        orv = float(np.exp(b))
+        or_lo = float(np.exp(lo))
+        or_hi = float(np.exp(hi))
+        sig = "có ý nghĩa thống kê" if p < alpha else "chưa đủ ý nghĩa thống kê"
+
+        m_num = re.match(r"Q\('(.+)'\)", term)
+        if m_num:
+            var = m_num.group(1)
+            direction = "tăng" if orv > 1 else "giảm"
+            lines.append(
+                f"- **{var}**: tăng 1 đơn vị → odds **{direction}** theo OR={orv:.3f}. "
+                f"p={p:.4g}, CI95% OR=[{or_lo:.3f}; {or_hi:.3f}] → {sig}."
+            )
+            continue
+
+        m_cat = re.match(r"C\(Q\('(.+)'\)\)\[T\.(.+)\]", term)
+        if m_cat:
+            var = m_cat.group(1)
+            lv = m_cat.group(2)
+            direction = "cao hơn" if orv > 1 else "thấp hơn"
+            lines.append(
+                f"- **{var}={lv}** (so với nhóm tham chiếu): odds **{direction}** theo OR={orv:.3f}. "
+                f"p={p:.4g}, CI95% OR=[{or_lo:.3f}; {or_hi:.3f}] → {sig}."
+            )
+            continue
+
         lines.append(
-            f"- **{term}**: coef={b:.4f}, p={p:.4g}, CI95%=[{lo:.4f}; {hi:.4f}] → {sig}."
+            f"- **{term}**: OR={orv:.3f}, p={p:.4g}, CI95% OR=[{or_lo:.3f}; {or_hi:.3f}] → {sig}."
         )
     return lines or ["- Không có biến giải thích (chỉ intercept)."]
 
@@ -751,6 +800,7 @@ if "datasets" not in st.session_state:
 if "active_name" not in st.session_state:
     st.session_state["active_name"] = None
 
+# upload multi-table pending
 if "pending_tables" not in st.session_state:
     st.session_state["pending_tables"] = None
 if "pending_fname" not in st.session_state:
@@ -758,21 +808,33 @@ if "pending_fname" not in st.session_state:
 if "pending_file_hash" not in st.session_state:
     st.session_state["pending_file_hash"] = None
 
+# dedupe
 if "hash_to_key" not in st.session_state:
     st.session_state["hash_to_key"] = {}
 if "key_to_hashes" not in st.session_state:
     st.session_state["key_to_hashes"] = {}
-
 if "last_upload_hash" not in st.session_state:
     st.session_state["last_upload_hash"] = None
 
+# last result
 if "last_result" not in st.session_state:
     st.session_state["last_result"] = None
 if "last_run_meta" not in st.session_state:
     st.session_state["last_run_meta"] = None
 
+# stepper
 if "active_step" not in st.session_state:
     st.session_state["active_step"] = 1
+
+# persist selections per dataset
+if "selections" not in st.session_state:
+    st.session_state["selections"] = {}  # dataset_name -> dict
+if "last_active_dataset" not in st.session_state:
+    st.session_state["last_active_dataset"] = None
+
+# widget keys (persist across reruns)
+if "var_search" not in st.session_state:
+    st.session_state["var_search"] = ""
 
 
 def _register_dataset(key: str, df: pd.DataFrame, hashes: List[str]):
@@ -786,35 +848,50 @@ def _register_dataset(key: str, df: pd.DataFrame, hashes: List[str]):
 
 def _delete_dataset(key: str):
     st.session_state["datasets"].pop(key, None)
+    st.session_state["selections"].pop(key, None)
     hashes = st.session_state["key_to_hashes"].pop(key, set())
     for h in list(hashes):
         if st.session_state["hash_to_key"].get(h) == key:
             st.session_state["hash_to_key"].pop(h, None)
 
 
-# =========================
-# Header (compact, safe top)
-# =========================
-st.markdown(
-    f"""
-    <div style="padding:0.10rem 0 0.10rem 0; margin-top:0.20rem;">
-      <h1 style="margin:0;">{APP_TITLE}</h1>
-      <div style="color:#6b7280; font-size:0.88rem; margin-top:0.08rem;">
-        Upload dữ liệu → chọn biến → kiểm định (1 X) hoặc mô hình (nhiều X) → kết quả + giải thích
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+def _load_selection_for_dataset(dataset: str, cols: List[str]):
+    saved = st.session_state["selections"].get(dataset, {})
+    y = saved.get("y")
+    if y not in cols:
+        y = cols[0] if cols else None
+    xs = saved.get("xs", [])
+    xs = [x for x in xs if (x in cols and x != y)]
+
+    y_force = saved.get("y_force", "Tự động")
+    x_force = saved.get("x_force", "Tự động")
+    y_event = saved.get("y_event", None)
+
+    # Set widget states so Streamlit doesn't reset
+    st.session_state["sel_y_widget"] = y
+    st.session_state["sel_xs_widget"] = xs
+    st.session_state["sel_y_force_widget"] = y_force
+    st.session_state["sel_x_force_widget"] = x_force
+    st.session_state["sel_y_event_widget"] = y_event
+
+
+def _save_selection_for_dataset(dataset: str, y: str, xs: List[str], y_force: str, x_force: str, y_event: Optional[str]):
+    st.session_state["selections"][dataset] = {
+        "y": y,
+        "xs": xs,
+        "y_force": y_force,
+        "x_force": x_force,
+        "y_event": y_event,
+    }
 
 
 # =========================
-# Sidebar
+# Sidebar: upload + dataset manager
 # =========================
 with st.sidebar:
-    st.markdown("## ⬆️ Upload")
+    st.markdown("## ⬆️ Upload dữ liệu")
     up = st.file_uploader(
-        "Tải lên dữ liệu (CSV/XLSX/XLS/SAV/ZsAV/DTA/RDS)",
+        "Tải lên (CSV/XLSX/XLS/SAV/ZsAV/DTA/RDS)",
         type=["csv", "xlsx", "xls", "sav", "zsav", "dta", "rds"],
         accept_multiple_files=False,
     )
@@ -824,11 +901,10 @@ with st.sidebar:
             raw = up.getvalue()
             file_hash = _file_sha256(raw)
 
-            # chống xử lý lại cùng 1 upload
             if st.session_state["last_upload_hash"] != file_hash:
                 st.session_state["last_upload_hash"] = file_hash
 
-                # nếu file đã từng import → chọn lại dataset cũ (tránh duplicate)
+                # file hash đã có -> không tạo dataset mới
                 if file_hash in st.session_state["hash_to_key"]:
                     existed_key = st.session_state["hash_to_key"][file_hash]
                     st.session_state["active_name"] = existed_key
@@ -836,7 +912,6 @@ with st.sidebar:
                 else:
                     tables = read_file_safely(up)
 
-                    # file nhiều sheet/object
                     if len(tables) > 1:
                         st.session_state["pending_tables"] = tables
                         st.session_state["pending_fname"] = up.name
@@ -859,7 +934,7 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Không đọc được file: {e}")
 
-    # chọn sheet/object khi file có nhiều bảng
+    # multi-table chooser
     if st.session_state["pending_tables"] is not None:
         st.markdown("### Chọn sheet/object")
         tables = st.session_state["pending_tables"]
@@ -912,7 +987,7 @@ with st.sidebar:
 
     names_all = list(st.session_state["datasets"].keys())
     if not names_all:
-        st.info("Chưa có dữ liệu.")
+        st.info("Chưa có dữ liệu. Hãy upload.")
         st.stop()
 
     ds_q = st.text_input("Tìm dataset", value="", placeholder="gõ tên dataset...")
@@ -929,6 +1004,7 @@ with st.sidebar:
     chosen = st.selectbox("Chọn dataset", options=names, index=names.index(active) if active in names else 0)
     st.session_state["active_name"] = chosen
 
+    # rename
     with st.expander("✏️ Đổi tên dataset"):
         new_name = st.text_input("Tên mới", value=chosen)
         if st.button("Lưu tên", use_container_width=True):
@@ -945,6 +1021,10 @@ with st.sidebar:
                     if st.session_state["hash_to_key"].get(h) == chosen:
                         st.session_state["hash_to_key"][h] = new_name
 
+                # move selections
+                if chosen in st.session_state["selections"]:
+                    st.session_state["selections"][new_name] = st.session_state["selections"].pop(chosen)
+
                 st.session_state["active_name"] = new_name
                 st.success("Đã đổi tên.")
                 st.rerun()
@@ -955,7 +1035,7 @@ with st.sidebar:
 
     c1, c2 = st.columns([1, 1], gap="small")
     with c1:
-        if st.button("Xoá", use_container_width=True):
+        if st.button("🗑️ Xoá", use_container_width=True):
             _delete_dataset(chosen)
             remaining = list(st.session_state["datasets"].keys())
             st.session_state["active_name"] = remaining[0] if remaining else None
@@ -965,7 +1045,7 @@ with st.sidebar:
             st.rerun()
 
     with c2:
-        if st.button("Xoá hết", use_container_width=True):
+        if st.button("🧹 Xoá hết", use_container_width=True):
             st.session_state["datasets"] = {}
             st.session_state["active_name"] = None
             st.session_state["pending_tables"] = None
@@ -977,48 +1057,71 @@ with st.sidebar:
             st.session_state["last_result"] = None
             st.session_state["last_run_meta"] = None
             st.session_state["active_step"] = 1
+            st.session_state["selections"] = {}
+            st.session_state["last_active_dataset"] = None
             st.rerun()
 
 
 # =========================
-# Main data
+# Main data + load selection on dataset change
 # =========================
-df = st.session_state["datasets"][st.session_state["active_name"]]
+active_name = st.session_state["active_name"]
+df = st.session_state["datasets"][active_name]
 cols = df.columns.tolist()
 
+if st.session_state["last_active_dataset"] != active_name:
+    st.session_state["last_active_dataset"] = active_name
+    _load_selection_for_dataset(active_name, cols)
+
 
 # =========================
-# Stepper
+# Sticky TOP: Header + Stepper (must be the first border container)
 # =========================
-st.markdown("## 🧭 Các bước")
-b1, b2, b3 = st.columns(3, gap="small")
+top_box = st.container(border=True)
+with top_box:
+    st.markdown(
+        f"""
+        <div>
+          <h1 style="margin:0;">
+            <span style="color:#ef4444;">🔬</span> {APP_TITLE}
+          </h1>
+          <div class="subline">
+            Upload dữ liệu → chọn biến → kiểm định (1 X) hoặc mô hình (nhiều X) → kết quả + giải thích
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-with b1:
-    t = "primary" if st.session_state["active_step"] == 1 else "secondary"
-    if st.button("1) 📄 Dữ liệu", type=t, use_container_width=True):
-        st.session_state["active_step"] = 1
-        st.rerun()
-    st.caption("Tổng quan • xem bảng • danh sách biến")
+    st.markdown("### 🧭 Các bước")
+    b1, b2, b3 = st.columns(3, gap="small")
 
-with b2:
-    t = "primary" if st.session_state["active_step"] == 2 else "secondary"
-    if st.button("2) 🎯 Chọn biến", type=t, use_container_width=True):
-        st.session_state["active_step"] = 2
-        st.rerun()
-    st.caption("Chọn Y/X • gợi ý • bấm Run")
+    with b1:
+        t = "primary" if st.session_state["active_step"] == 1 else "secondary"
+        if st.button("1) 📄 Dữ liệu", type=t, use_container_width=True):
+            st.session_state["active_step"] = 1
+            st.rerun()
+        st.caption("Tổng quan • xem bảng • danh sách biến")
 
-with b3:
-    t = "primary" if st.session_state["active_step"] == 3 else "secondary"
-    if st.button("3) 📌 Kết quả", type=t, use_container_width=True):
-        st.session_state["active_step"] = 3
-        st.rerun()
-    st.caption("Bảng • biểu đồ • diễn giải")
+    with b2:
+        t = "primary" if st.session_state["active_step"] == 2 else "secondary"
+        if st.button("2) 🎯 Chọn biến", type=t, use_container_width=True):
+            st.session_state["active_step"] = 2
+            st.rerun()
+        st.caption("Chọn Y/X • gợi ý • bấm Run")
+
+    with b3:
+        t = "primary" if st.session_state["active_step"] == 3 else "secondary"
+        if st.button("3) 📌 Kết quả", type=t, use_container_width=True):
+            st.session_state["active_step"] = 3
+            st.rerun()
+        st.caption("Bảng • biểu đồ • diễn giải")
 
 st.divider()
 
 
 # =========================
-# Compute & store results
+# Compute and store results
 # =========================
 def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_event: Optional[str]):
     # 1 X -> test
@@ -1027,7 +1130,7 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
         result_df, interp = run_single_x_test(df, y, xs[0], test_kind=test_kind)
 
         st.session_state["last_run_meta"] = {
-            "dataset": st.session_state["active_name"],
+            "dataset": active_name,
             "mode": "test",
             "y": y,
             "xs": xs,
@@ -1066,7 +1169,7 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
         table = logit_or_table(fit)
 
     st.session_state["last_run_meta"] = {
-        "dataset": st.session_state["active_name"],
+        "dataset": active_name,
         "mode": "model",
         "y": y,
         "xs": xs,
@@ -1097,10 +1200,10 @@ if st.session_state["active_step"] == 1:
     m4.metric("Phân loại", summ["Biến phân loại"])
     m5.metric("NA", summ["Ô thiếu (NA)"])
 
-    cL, cR = st.columns([1.2, 1.0], gap="small")
+    cL, cR = st.columns([1.25, 1.0], gap="small")
     with cL:
         st.markdown("### 👀 Xem nhanh")
-        st.dataframe(df.head(25), use_container_width=True, height=240)
+        st.dataframe(df.head(25), use_container_width=True, height=260)
 
     with cR:
         st.markdown("### 🧾 Danh sách biến")
@@ -1118,13 +1221,13 @@ if st.session_state["active_step"] == 1:
         elif filter_opt == "Chỉ phân loại":
             var_df = var_df[var_df["Đặc tính biến"].str.contains("Phân loại", na=False)]
 
-        st.dataframe(var_df, use_container_width=True, height=240)
+        st.dataframe(var_df, use_container_width=True, height=260)
 
     st.info("👉 Sang **2) Chọn biến** để chọn Y/X và bấm Run.")
 
 
 # =========================
-# STEP 2: Choose variables
+# STEP 2: Choose variables (persist selections)
 # =========================
 elif st.session_state["active_step"] == 2:
     st.subheader("🎯 Chọn biến")
@@ -1132,26 +1235,88 @@ elif st.session_state["active_step"] == 2:
     left, right = st.columns([2.0, 1.0], gap="small")
 
     with left:
-        vq = st.text_input("Tìm biến (tuỳ chọn)", value="", placeholder="gõ để lọc danh sách...")
+        st.session_state["var_search"] = st.text_input(
+            "Tìm biến (tuỳ chọn)", value=st.session_state.get("var_search", ""), placeholder="gõ để lọc danh sách..."
+        )
+        vq = st.session_state["var_search"]
         cols_show = [c for c in cols if vq.lower() in c.lower()] if vq.strip() else cols
         if not cols_show:
             cols_show = cols
 
-        y = st.selectbox("Biến phụ thuộc (Y)", options=cols_show, index=0)
-        xs = st.multiselect("Biến độc lập (X)", options=[c for c in cols_show if c != y])
+        # Y widget (persist via session_state key)
+        y_current = st.session_state.get("sel_y_widget", cols_show[0])
+        if y_current not in cols_show:
+            y_current = cols_show[0]
+
+        y = st.selectbox(
+            "Biến phụ thuộc (Y)",
+            options=cols_show,
+            index=cols_show.index(y_current),
+            key="sel_y_widget",
+        )
+
+        # X options exclude Y
+        x_options = [c for c in cols_show if c != y]
+        xs_prev = st.session_state.get("sel_xs_widget", [])
+        xs_prev = [x for x in xs_prev if x in x_options]
+
+        xs = st.multiselect(
+            "Biến độc lập (X)",
+            options=x_options,
+            default=xs_prev,
+            key="sel_xs_widget",
+        )
 
         force_opts = ["Tự động", "Định lượng (numeric)", "Phân loại (categorical)"]
-        y_force = st.selectbox("Kiểu Y", options=force_opts, index=0)
+
+        y_force_prev = st.session_state.get("sel_y_force_widget", "Tự động")
+        if y_force_prev not in force_opts:
+            y_force_prev = "Tự động"
+
+        y_force = st.selectbox(
+            "Kiểu Y",
+            options=force_opts,
+            index=force_opts.index(y_force_prev),
+            key="sel_y_force_widget",
+        )
 
         x_force = "Tự động"
         if len(xs) == 1:
-            x_force = st.selectbox("Kiểu X (chỉ khi 1 X)", options=force_opts, index=0)
+            x_force_prev = st.session_state.get("sel_x_force_widget", "Tự động")
+            if x_force_prev not in force_opts:
+                x_force_prev = "Tự động"
+            x_force = st.selectbox(
+                "Kiểu X (chỉ khi 1 X)",
+                options=force_opts,
+                index=force_opts.index(x_force_prev),
+                key="sel_x_force_widget",
+            )
+        else:
+            st.session_state["sel_x_force_widget"] = "Tự động"
+            x_force = "Tự động"
 
+        # y_event (for logistic)
         y_event = None
         if var_kind(df[y], y_force) == "cat":
             levels = sorted(df[y].dropna().astype(str).unique().tolist())
             if len(levels) == 2:
-                y_event = st.selectbox("Sự kiện (Y=1) cho logistic", options=levels, index=1)
+                prev_ev = st.session_state.get("sel_y_event_widget", None)
+                idx = 1
+                if prev_ev in levels:
+                    idx = levels.index(prev_ev)
+                y_event = st.selectbox(
+                    "Sự kiện (Y=1) cho logistic",
+                    options=levels,
+                    index=idx,
+                    key="sel_y_event_widget",
+                )
+            else:
+                st.session_state["sel_y_event_widget"] = None
+        else:
+            st.session_state["sel_y_event_widget"] = None
+
+        # Save per dataset
+        _save_selection_for_dataset(active_name, y, xs, y_force, x_force, y_event)
 
         st.markdown("### ✅ Gợi ý")
         if len(xs) == 0:
@@ -1176,14 +1341,21 @@ elif st.session_state["active_step"] == 2:
 
     with right:
         st.markdown("### 📌 Tóm tắt")
-        st.write(f"**Dataset:** {st.session_state['active_name']}")
-        st.write(f"**Biến phụ thuộc (Y):** {y}")
-        st.write(f"**Biến độc lập (X):** {', '.join(xs) if xs else '-'}")
+        st.write(f"**Dataset:** {active_name}")
+        st.write(f"**Biến phụ thuộc (Y):** {st.session_state.get('sel_y_widget')}")
+        xs_show = st.session_state.get("sel_xs_widget", [])
+        st.write(f"**Biến độc lập (X):** {', '.join(xs_show) if xs_show else '-'}")
 
         st.markdown("---")
-        if st.button("▶️ Run", type="primary", use_container_width=True, disabled=(len(xs) == 0)):
+        if st.button("▶️ Run", type="primary", use_container_width=True, disabled=(len(xs_show) == 0)):
             try:
-                _compute_and_store(y=y, xs=xs, y_force=y_force, x_force=x_force, y_event=y_event)
+                _compute_and_store(
+                    y=st.session_state.get("sel_y_widget"),
+                    xs=st.session_state.get("sel_xs_widget", []),
+                    y_force=st.session_state.get("sel_y_force_widget", "Tự động"),
+                    x_force=st.session_state.get("sel_x_force_widget", "Tự động"),
+                    y_event=st.session_state.get("sel_y_event_widget", None),
+                )
                 st.session_state["active_step"] = 3
                 st.rerun()
             except Exception as e:
@@ -1208,23 +1380,23 @@ else:
 
         st.markdown(
             f"""
-            <div style="border:1px solid rgba(0,0,0,0.08); border-radius:12px; padding:10px;">
+            <div style="border:1px solid rgba(0,0,0,0.08); border-radius:14px; padding:10px;">
               <div style="display:flex; gap:12px; flex-wrap:wrap;">
                 <div style="min-width:200px;">
                   <div style="color:#6b7280; font-size:12px;">Dataset</div>
-                  <div style="font-size:15px; font-weight:800;">{meta.get('dataset','-')}</div>
+                  <div style="font-size:15px; font-weight:900;">{meta.get('dataset','-')}</div>
                 </div>
                 <div style="min-width:220px;">
                   <div style="color:#6b7280; font-size:12px;">Biến phụ thuộc (Y)</div>
-                  <div style="font-size:15px; font-weight:800;">{y_name}</div>
+                  <div style="font-size:15px; font-weight:900;">{y_name}</div>
                 </div>
                 <div style="min-width:320px; flex:1;">
                   <div style="color:#6b7280; font-size:12px;">Biến độc lập (X)</div>
-                  <div style="font-size:15px; font-weight:800;">{x_text}</div>
+                  <div style="font-size:15px; font-weight:900;">{x_text}</div>
                 </div>
               </div>
               <div style="margin-top:6px; color:#6b7280; font-size:12px;">Gợi ý</div>
-              <div style="font-size:15px; font-weight:800;">{meta.get('suggestion','-')}</div>
+              <div style="font-size:15px; font-weight:900;">{meta.get('suggestion','-')}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1248,9 +1420,13 @@ else:
                 table = res["table"]
                 st.caption(meta.get("note", ""))
 
+                with st.expander("Xem công thức mô hình (formula)"):
+                    st.code(meta.get("formula", ""))
+                    st.caption(f"Số dòng dùng cho mô hình (sau khi loại NA): {meta.get('n_used','-')}")
+
                 if kind == "ols" and table is not None:
                     st.markdown("### 📊 Bảng kết quả mô hình (OLS)")
-                    st.dataframe(table, use_container_width=True, height=270)
+                    st.dataframe(table, use_container_width=True, height=280)
 
                     st.markdown("### 🧮 Phương trình hồi quy")
                     st.write(format_ols_equation(fit, y_name))
@@ -1260,18 +1436,21 @@ else:
 
                 elif kind == "logit" and table is not None:
                     st.markdown("### 📊 Bảng kết quả logistic (OR)")
-                    st.dataframe(table, use_container_width=True, height=270)
+                    st.dataframe(table, use_container_width=True, height=280)
+
+                    st.markdown("### 🔎 Diễn giải chi tiết (OR)")
+                    st.write("\n".join(explain_logit_effects(fit, alpha=0.05)))
+
+                    st.markdown("### 📌 Ghi chú")
                     st.write(
-                        "🔎 **Gợi ý diễn giải:**\n"
-                        "- OR > 1: tăng odds xảy ra sự kiện (Y=1)\n"
-                        "- OR < 1: giảm odds\n"
-                        "- p-value < 0.05 và CI 95% không chứa 1: thường có ý nghĩa"
+                        "- OR > 1: odds tăng; OR < 1: odds giảm.\n"
+                        "- p<0.05 và CI95% không chứa 1: thường có ý nghĩa."
                     )
 
                 else:
                     st.markdown("### 📄 MNLogit Summary")
                     st.write(fit.summary())
-                    st.info("Multinomial: nếu bạn muốn bảng RRR = exp(coef) theo từng nhóm, mình có thể bổ sung tiếp.")
+                    st.info("Multinomial: nếu bạn muốn bảng RRR = exp(coef) theo từng nhóm, mình có thể bổ sung.")
 
         with right:
             st.markdown("### 📈 Biểu đồ minh hoạ")
@@ -1331,10 +1510,26 @@ else:
                             )
                         st.plotly_chart(fig, use_container_width=True)
 
+                        # predicted vs actual
+                        pred = res["fit"].fittedvalues
+                        tmp_plot = pd.DataFrame({"Thực tế": data_used[y], "Dự đoán": pred})
+                        fig2 = px.scatter(tmp_plot, x="Thực tế", y="Dự đoán", title="Dự đoán vs Thực tế", height=320)
+                        st.plotly_chart(fig2, use_container_width=True)
+
                     elif kind == "logit":
                         p = res["fit"].predict()
                         fig = px.histogram(p, nbins=22, title="Xác suất dự đoán (p)", height=320)
                         st.plotly_chart(fig, use_container_width=True)
+
+                        # confusion at 0.5
+                        y_true = data_used["_y01_"].astype(int)
+                        y_pred = (p >= 0.5).astype(int)
+                        tp = int(((y_true == 1) & (y_pred == 1)).sum())
+                        tn = int(((y_true == 0) & (y_pred == 0)).sum())
+                        fp = int(((y_true == 0) & (y_pred == 1)).sum())
+                        fn = int(((y_true == 1) & (y_pred == 0)).sum())
+                        st.write("**Bảng nhầm lẫn (ngưỡng 0.5):**")
+                        st.table(pd.DataFrame({"Dự đoán 0": [tn, fn], "Dự đoán 1": [fp, tp]}, index=["Thực tế 0", "Thực tế 1"]))
 
                     else:
                         st.info("Multinomial: biểu đồ sẽ được bổ sung theo nhu cầu.")
