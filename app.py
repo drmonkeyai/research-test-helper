@@ -1,7 +1,7 @@
-# app.py
 import io
 import re
 import tempfile
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -26,15 +26,29 @@ APP_TITLE = "Hỗ trợ nghiên cứu cho bác sĩ gia đình"
 
 
 # =========================
-# Helpers: file read
+# Helpers: safe name / hash
 # =========================
 def _safe_name(name: str) -> str:
-    """Safe key name for session_state keys."""
-    return re.sub(r"[^a-zA-Z0-9_]+", "_", name.strip())[:80] or "file"
+    return re.sub(r"[^a-zA-Z0-9_]+", "_", str(name).strip())[:80] or "file"
 
 
+def _file_sha256(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _df_sha256(df: pd.DataFrame) -> str:
+    """
+    Hash nội dung DataFrame (ổn định theo dữ liệu).
+    Dùng để chống nhập trùng sheet/object.
+    """
+    h = pd.util.hash_pandas_object(df, index=True).values.tobytes()
+    return hashlib.sha256(h).hexdigest()
+
+
+# =========================
+# Helpers: file reading
+# =========================
 def read_csv_safely(uploaded_file) -> pd.DataFrame:
-    """Try reading CSV with common encodings; fall back gracefully."""
     raw = uploaded_file.getvalue()
     encodings = ["utf-8-sig", "utf-8", "cp1258", "cp1252", "latin1"]
     last_err = None
@@ -48,11 +62,12 @@ def read_csv_safely(uploaded_file) -> pd.DataFrame:
 
 def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
     """
-    Return dict {table_name: df}.
+    Return dict {table_name: df}
     - CSV: {"data": df}
-    - Excel: {sheet_name: df, ...}
-    - SPSS/STATA: {"data": df}
-    - RDS: {object_name: df} (first df if only one)
+    - XLSX/XLS: {sheet: df}
+    - SPSS: {"data": df}
+    - STATA: {"data": df}
+    - RDS: {object: df}
     """
     name = uploaded_file.name
     ext = Path(name).suffix.lower()
@@ -62,15 +77,22 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
         df = read_csv_safely(uploaded_file)
         return {"data": df}
 
-    if ext in [".xlsx", ".xls"]:
-        xls = pd.ExcelFile(io.BytesIO(raw))
+    if ext == ".xlsx":
+        xls = pd.ExcelFile(io.BytesIO(raw), engine="openpyxl")
         out: Dict[str, pd.DataFrame] = {}
         for sh in xls.sheet_names:
-            out[str(sh)] = pd.read_excel(xls, sheet_name=sh)
+            out[str(sh)] = pd.read_excel(xls, sheet_name=sh)  # engine from ExcelFile
+        return out
+
+    if ext == ".xls":
+        # .xls cần xlrd>=2.0.1
+        xls = pd.ExcelFile(io.BytesIO(raw), engine="xlrd")
+        out: Dict[str, pd.DataFrame] = {}
+        for sh in xls.sheet_names:
+            out[str(sh)] = pd.read_excel(xls, sheet_name=sh, engine="xlrd")
         return out
 
     if ext in [".sav", ".zsav"]:
-        # pandas uses pyreadstat under the hood
         df = pd.read_spss(io.BytesIO(raw))
         return {"data": df}
 
@@ -88,11 +110,12 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
             tmp.write(raw)
             tmp_path = tmp.name
 
-        res = pyreadr.read_r(tmp_path)  # dict name->obj
+        res = pyreadr.read_r(tmp_path)
         out: Dict[str, pd.DataFrame] = {}
         for k, v in res.items():
             if isinstance(v, pd.DataFrame):
                 out[str(k) if k else "data"] = v
+
         if not out:
             raise RuntimeError("File .rds không chứa DataFrame (hoặc object không hỗ trợ).")
         return out
@@ -101,10 +124,9 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
 
 
 # =========================
-# Helpers: variable types
+# Helpers: type detection
 # =========================
 def is_categorical(s: pd.Series) -> bool:
-    """Heuristic: object/category/bool, or low unique count."""
     if pd.api.types.is_bool_dtype(s) or pd.api.types.is_object_dtype(s) or pd.api.types.is_categorical_dtype(s):
         return True
     if pd.api.types.is_numeric_dtype(s):
@@ -115,15 +137,10 @@ def is_categorical(s: pd.Series) -> bool:
 
 
 def coerce_numeric(s: pd.Series) -> pd.Series:
-    """Try convert to numeric, keep NaN on errors."""
     return pd.to_numeric(s, errors="coerce")
 
 
 def var_kind(s: pd.Series, forced: str = "Tự động") -> str:
-    """
-    forced: "Tự động" | "Định lượng (numeric)" | "Phân loại (categorical)"
-    return: "num" | "cat"
-    """
     if forced == "Định lượng (numeric)":
         return "num"
     if forced == "Phân loại (categorical)":
@@ -132,7 +149,7 @@ def var_kind(s: pd.Series, forced: str = "Tự động") -> str:
 
 
 # =========================
-# Helpers: summaries
+# Summaries
 # =========================
 def summarize_variable(df: pd.DataFrame, col: str) -> Dict[str, str]:
     s = df[col]
@@ -151,10 +168,7 @@ def summarize_variable(df: pd.DataFrame, col: str) -> Dict[str, str]:
     x = coerce_numeric(s)
     x_non = x.dropna()
     if len(x_non) == 0:
-        return {
-            "Tên biến": col,
-            "Đặc tính biến": f"Định lượng | thiếu={miss}/{n} | (không đọc được số)",
-        }
+        return {"Tên biến": col, "Đặc tính biến": f"Định lượng | thiếu={miss}/{n} | (không đọc được số)"}
 
     mean = float(x_non.mean())
     sd = float(x_non.std(ddof=1)) if len(x_non) >= 2 else float("nan")
@@ -163,10 +177,7 @@ def summarize_variable(df: pd.DataFrame, col: str) -> Dict[str, str]:
     q3 = float(x_non.quantile(0.75))
     return {
         "Tên biến": col,
-        "Đặc tính biến": (
-            f"Định lượng | thiếu={miss}/{n} | mean={mean:.2f}, SD={sd:.2f} | "
-            f"median={med:.2f} (IQR {q1:.2f}-{q3:.2f})"
-        ),
+        "Đặc tính biến": f"Định lượng | thiếu={miss}/{n} | mean={mean:.2f}, SD={sd:.2f} | median={med:.2f} (IQR {q1:.2f}-{q3:.2f})",
     }
 
 
@@ -186,7 +197,7 @@ def overall_summary(df: pd.DataFrame) -> Dict[str, int]:
 
 
 # =========================
-# Helpers: single-X test suggestion + run
+# Single-X test: suggest + run
 # =========================
 def suggest_single_x_test(
     df: pd.DataFrame,
@@ -195,10 +206,6 @@ def suggest_single_x_test(
     y_forced: str = "Tự động",
     x_forced: str = "Tự động",
 ) -> Tuple[str, str, str]:
-    """
-    Return (suggestion_name, explanation, test_kind)
-    test_kind used in run_single_x_test
-    """
     yk = var_kind(df[y], y_forced)
     xk = var_kind(df[x], x_forced)
 
@@ -206,15 +213,12 @@ def suggest_single_x_test(
     if tmp.shape[0] < 3:
         return ("Không đủ dữ liệu", "Sau khi loại NA, số dòng quá ít để kiểm định.", "none")
 
-    # cat-cat
     if yk == "cat" and xk == "cat":
         tab = pd.crosstab(tmp[y].astype(str), tmp[x].astype(str))
-        r, c = tab.shape
-        if r == 2 and c == 2 and (tab.values < 5).any():
+        if tab.shape == (2, 2) and (tab.values < 5).any():
             return ("Fisher exact (2x2)", "Bảng 2x2 và có ô nhỏ → ưu tiên Fisher exact.", "fisher_2x2")
         return ("Chi-bình phương (Chi-square)", "X và Y đều phân loại → kiểm định độc lập bằng Chi-square.", "chisq")
 
-    # num-cat (so sánh num theo nhóm cat)
     if yk == "num" and xk == "cat":
         n_levels = tmp[x].astype(str).nunique()
         if n_levels == 2:
@@ -227,9 +231,8 @@ def suggest_single_x_test(
             return ("t-test độc lập (Welch)", "Y có 2 nhóm, X định lượng → so sánh trung bình X giữa 2 nhóm.", "ttest_ygroup_xnum")
         return ("ANOVA một yếu tố", f"Y có {n_levels} nhóm, X định lượng → so sánh trung bình X giữa nhiều nhóm.", "anova_ygroup_xnum")
 
-    # num-num
     if yk == "num" and xk == "num":
-        return ("Tương quan Pearson (kèm hồi quy đơn)", "X và Y đều định lượng → đánh giá liên quan tuyến tính (Pearson).", "corr_pearson")
+        return ("Tương quan Pearson", "X và Y đều định lượng → đánh giá liên quan tuyến tính (Pearson).", "corr_pearson")
 
     return ("Không xác định", "Không xác định được phép kiểm phù hợp từ kiểu biến hiện tại.", "none")
 
@@ -256,15 +259,7 @@ def _cramers_v(tab: pd.DataFrame) -> float:
     return np.sqrt(chi2 / (n * (min(r, k) - 1))) if min(r, k) > 1 else float("nan")
 
 
-def run_single_x_test(
-    df: pd.DataFrame,
-    y: str,
-    x: str,
-    test_kind: str,
-) -> Tuple[pd.DataFrame, str]:
-    """
-    Return (result_table, interpretation_text)
-    """
+def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple[pd.DataFrame, str]:
     tmp = df[[y, x]].dropna().copy()
 
     if test_kind in ("ttest_xgroup_ynum", "anova_xgroup_ynum"):
@@ -288,7 +283,7 @@ def run_single_x_test(
             )
             interp = (
                 "Diễn giải: p-value nhỏ (ví dụ <0.05) gợi ý trung bình Y khác nhau giữa 2 nhóm X. "
-                "Cohen’s d giúp đánh giá độ lớn khác biệt (≈0.2 nhỏ, 0.5 vừa, 0.8 lớn)."
+                "Cohen’s d đánh giá độ lớn khác biệt (≈0.2 nhỏ, 0.5 vừa, 0.8 lớn)."
             )
             return out, interp
 
@@ -297,8 +292,8 @@ def run_single_x_test(
         fstat, p = stats.f_oneway(*arrays)
         out = pd.DataFrame({"Chỉ số": ["Số nhóm", "F", "p-value"], "Giá trị": [len(levels), fstat, p]})
         interp = (
-            "Diễn giải: p-value nhỏ (ví dụ <0.05) gợi ý có ít nhất 1 nhóm khác trung bình. "
-            "Nếu có ý nghĩa, nên làm phân tích hậu nghiệm (post-hoc) để biết nhóm nào khác nhóm nào."
+            "Diễn giải: p-value nhỏ gợi ý có ít nhất 1 nhóm khác trung bình. "
+            "Nếu có ý nghĩa, nên làm post-hoc để biết nhóm nào khác nhóm nào."
         )
         return out, interp
 
@@ -323,7 +318,7 @@ def run_single_x_test(
             )
             interp = (
                 "Diễn giải: p-value nhỏ gợi ý trung bình X khác nhau giữa 2 nhóm Y. "
-                "Cohen’s d cho biết độ lớn khác biệt."
+                "Cohen’s d đánh giá độ lớn khác biệt."
             )
             return out, interp
 
@@ -343,7 +338,7 @@ def run_single_x_test(
         v = _cramers_v(tab)
         out = pd.DataFrame({"Chỉ số": ["Chi2", "df", "p-value", "Cramer's V"], "Giá trị": [chi2, dof, p, v]})
         interp = (
-            "Diễn giải: p-value nhỏ gợi ý X và Y không độc lập (có liên quan). "
+            "Diễn giải: p-value nhỏ gợi ý X và Y có liên quan. "
             "Cramer's V cho biết độ mạnh liên quan (≈0.1 nhỏ, 0.3 vừa, 0.5 lớn – tuỳ bối cảnh)."
         )
         return out, interp
@@ -356,7 +351,7 @@ def run_single_x_test(
         out = pd.DataFrame({"Chỉ số": ["Odds ratio", "p-value"], "Giá trị": [oddsratio, p]})
         interp = (
             "Diễn giải: p-value nhỏ gợi ý có liên quan giữa 2 biến phân loại. "
-            "Odds ratio >1 cho thấy odds cao hơn ở một nhóm (cần xem nhóm tham chiếu từ bảng 2x2)."
+            "Odds ratio >1 cho thấy odds cao hơn ở một nhóm (xem nhóm tham chiếu từ bảng 2x2)."
         )
         return out, interp
 
@@ -367,7 +362,7 @@ def run_single_x_test(
         r, p = stats.pearsonr(tmp[x].to_numpy(), tmp[y].to_numpy())
         out = pd.DataFrame({"Chỉ số": ["Pearson r", "p-value", "n"], "Giá trị": [r, p, tmp.shape[0]]})
         interp = (
-            "Diễn giải: r cho biết mức độ liên quan tuyến tính (gần 0: yếu; gần ±1: mạnh). "
+            "Diễn giải: r cho biết liên quan tuyến tính (gần 0: yếu; gần ±1: mạnh). "
             "p-value nhỏ gợi ý liên quan tuyến tính có ý nghĩa thống kê."
         )
         return out, interp
@@ -376,11 +371,10 @@ def run_single_x_test(
 
 
 # =========================
-# Helpers: model suggestion + run
+# Model: suggest + build + run
 # =========================
 def suggest_model(df: pd.DataFrame, y: str, xs: List[str]) -> Tuple[str, str]:
     y_s = df[y]
-
     if is_categorical(y_s):
         n_levels = int(y_s.dropna().nunique())
         if n_levels <= 1:
@@ -388,17 +382,13 @@ def suggest_model(df: pd.DataFrame, y: str, xs: List[str]) -> Tuple[str, str]:
         if n_levels == 2:
             return (
                 "Hồi quy Logistic nhị phân (Binary Logistic)",
-                "Y là biến phân loại 2 mức → phù hợp logistic nhị phân để ước lượng OR và p-value khi có nhiều biến độc lập.",
+                "Y phân loại 2 mức → phù hợp logistic nhị phân để ước lượng OR và p-value khi có nhiều biến độc lập.",
             )
         return (
             "Hồi quy Logistic đa danh (Multinomial Logistic)",
-            f"Y là biến phân loại >2 mức (mức={n_levels}) → phù hợp logistic đa danh (multinomial).",
+            f"Y phân loại >2 mức (mức={n_levels}) → phù hợp logistic đa danh.",
         )
-
-    return (
-        "Hồi quy tuyến tính (OLS)",
-        "Y là biến định lượng liên tục → phù hợp hồi quy tuyến tính (OLS) để ước lượng hệ số, p-value và khoảng tin cậy.",
-    )
+    return ("Hồi quy tuyến tính (OLS)", "Y định lượng → phù hợp hồi quy tuyến tính (OLS).")
 
 
 def build_formula(
@@ -407,14 +397,7 @@ def build_formula(
     xs: List[str],
     y_binary_event: str | None = None,
 ) -> Tuple[str, pd.DataFrame, str]:
-    """
-    Build formula for statsmodels with safe quoting.
-    For logistic binary, we map Y categories to 0/1 using y_binary_event as event=1.
-    Returns (formula, data_used, model_kind)
-    model_kind in {"ols||...","logit||...","mnlogit||..."}
-    """
-    tmp = df[[y] + xs].copy()
-    tmp = tmp.dropna()
+    tmp = df[[y] + xs].copy().dropna()
 
     if is_categorical(tmp[y]):
         n_levels = int(tmp[y].nunique())
@@ -422,80 +405,51 @@ def build_formula(
         if n_levels == 2:
             y_cat = tmp[y].astype("category")
             cats = list(y_cat.cat.categories)
-            if y_binary_event is None or y_binary_event not in cats:
-                event = cats[1]
-            else:
-                event = y_binary_event
-
+            event = y_binary_event if (y_binary_event in cats) else cats[1]
             tmp["_y01_"] = (tmp[y] == event).astype(int)
 
             terms = []
             for x in xs:
-                if is_categorical(tmp[x]):
-                    terms.append(f"C(Q('{x}'))")
-                else:
-                    terms.append(f"Q('{x}')")
+                terms.append(f"C(Q('{x}'))" if is_categorical(tmp[x]) else f"Q('{x}')")
 
             formula = "_y01_ ~ " + " + ".join(terms)
-            note = f"Logistic nhị phân: sự kiện (Y=1) = '{event}'"
-            return (formula, tmp, "logit||" + note)
+            return formula, tmp, f"logit||Logistic nhị phân: sự kiện (Y=1)='{event}'"
 
         tmp["_ycat_"] = tmp[y].astype("category")
         tmp["_ycode_"] = tmp["_ycat_"].cat.codes
 
         terms = []
         for x in xs:
-            if is_categorical(tmp[x]):
-                terms.append(f"C(Q('{x}'))")
-            else:
-                terms.append(f"Q('{x}')")
+            terms.append(f"C(Q('{x}'))" if is_categorical(tmp[x]) else f"Q('{x}')")
 
         formula = "_ycode_ ~ " + " + ".join(terms)
-        note = "Multinomial: hệ số theo nhóm tham chiếu (mã hoá category)"
-        return (formula, tmp, "mnlogit||" + note)
+        return formula, tmp, "mnlogit||Multinomial: hệ số theo nhóm tham chiếu (mã hoá category)"
 
     tmp[y] = coerce_numeric(tmp[y])
     tmp = tmp.dropna()
 
     terms = []
     for x in xs:
-        if is_categorical(tmp[x]):
-            terms.append(f"C(Q('{x}'))")
-        else:
-            terms.append(f"Q('{x}')")
+        terms.append(f"C(Q('{x}'))" if is_categorical(tmp[x]) else f"Q('{x}')")
 
     formula = f"Q('{y}') ~ " + " + ".join(terms)
-    return (formula, tmp, "ols||OLS")
+    return formula, tmp, "ols||OLS"
 
 
 def run_model(formula: str, data_used: pd.DataFrame, model_kind: str):
     kind, note = model_kind.split("||", 1)
-
     if kind == "ols":
-        fit = smf.ols(formula=formula, data=data_used).fit()
-        return fit, note
-
+        return smf.ols(formula=formula, data=data_used).fit(), note
     if kind == "logit":
-        fit = smf.logit(formula=formula, data=data_used).fit(disp=0)
-        return fit, note
-
+        return smf.logit(formula=formula, data=data_used).fit(disp=0), note
     if kind == "mnlogit":
-        fit = smf.mnlogit(formula=formula, data=data_used).fit(disp=0)
-        return fit, note
-
+        return smf.mnlogit(formula=formula, data=data_used).fit(disp=0), note
     raise ValueError("Unknown model kind")
 
 
 def ols_table(fit) -> pd.DataFrame:
     conf = fit.conf_int()
-    out = pd.DataFrame(
-        {
-            "Hệ số": fit.params,
-            "CI 2.5%": conf[0],
-            "CI 97.5%": conf[1],
-            "p-value": fit.pvalues,
-        }
-    )
+    out = pd.DataFrame({"Hệ số": fit.params, "CI 2.5%": conf[0], "CI 97.5%": conf[1], "p-value": fit.pvalues})
     out.index.name = "Biến"
     return out.sort_values("p-value")
 
@@ -515,24 +469,53 @@ def logit_or_table(fit) -> pd.DataFrame:
 
 
 # =========================
-# Session state
+# Session state (chống duplicate)
 # =========================
 if "datasets" not in st.session_state:
-    st.session_state["datasets"] = {}  # name -> df
+    st.session_state["datasets"] = {}  # key -> df
 
 if "active_name" not in st.session_state:
     st.session_state["active_name"] = None
 
-# pending import for multi-table files (Excel / RDS)
+# pending (Excel/RDS nhiều bảng)
 if "pending_tables" not in st.session_state:
-    st.session_state["pending_tables"] = None  # dict name->df
-
+    st.session_state["pending_tables"] = None
 if "pending_fname" not in st.session_state:
     st.session_state["pending_fname"] = None
+if "pending_file_hash" not in st.session_state:
+    st.session_state["pending_file_hash"] = None
+
+# chống duplicate:
+# hash_to_key: hash -> dataset key
+# key_to_hashes: dataset key -> set(hash)
+if "hash_to_key" not in st.session_state:
+    st.session_state["hash_to_key"] = {}
+if "key_to_hashes" not in st.session_state:
+    st.session_state["key_to_hashes"] = {}
+if "last_upload_hash" not in st.session_state:
+    st.session_state["last_upload_hash"] = None
+
+
+def _register_dataset(key: str, df: pd.DataFrame, hashes: List[str]):
+    st.session_state["datasets"][key] = df
+    st.session_state["active_name"] = key
+
+    st.session_state["key_to_hashes"].setdefault(key, set())
+    for h in hashes:
+        st.session_state["hash_to_key"][h] = key
+        st.session_state["key_to_hashes"][key].add(h)
+
+
+def _delete_dataset(key: str):
+    st.session_state["datasets"].pop(key, None)
+    hashes = st.session_state["key_to_hashes"].pop(key, set())
+    for h in list(hashes):
+        if st.session_state["hash_to_key"].get(h) == key:
+            st.session_state["hash_to_key"].pop(h, None)
 
 
 # =========================
-# Header
+# UI: Header
 # =========================
 st.markdown(
     f"""
@@ -547,7 +530,7 @@ st.divider()
 
 
 # =========================
-# Top row (Overview | Upload | File list)
+# Top row: Overview | Upload | File list
 # =========================
 col_left, col_mid, col_right = st.columns([2.2, 1.6, 2.2], gap="large")
 
@@ -559,58 +542,95 @@ with col_mid:
         accept_multiple_files=False,
     )
 
+    # --- Handle upload (chống duplicate) ---
     if up is not None:
         try:
-            tables = read_file_safely(up)
+            raw = up.getvalue()
+            file_hash = _file_sha256(raw)
 
-            # Nếu có nhiều bảng (sheet/object) -> lưu pending và cho chọn
-            if len(tables) > 1:
-                st.session_state["pending_tables"] = tables
-                st.session_state["pending_fname"] = up.name
-                st.info(f"File có {len(tables)} bảng (sheet/object). Chọn 1 bảng để nhập.")
-            else:
-                df_new = list(tables.values())[0]
-                fname = up.name
-                key = fname
-                if key in st.session_state["datasets"]:
-                    base = _safe_name(fname)
-                    i = 2
-                    while f"{base}_{i}" in st.session_state["datasets"]:
-                        i += 1
-                    key = f"{base}_{i}"
-                st.session_state["datasets"][key] = df_new
-                st.session_state["active_name"] = key
-                st.success(f"Đã tải: {key} (rows={df_new.shape[0]}, cols={df_new.shape[1]})")
+            # Nếu rerun mà vẫn đúng file đó → bỏ qua để tránh add lại
+            if st.session_state["last_upload_hash"] != file_hash:
+                st.session_state["last_upload_hash"] = file_hash
+
+                # Nếu file giống hệt đã upload trước đó → chỉ chuyển active
+                if file_hash in st.session_state["hash_to_key"]:
+                    existed_key = st.session_state["hash_to_key"][file_hash]
+                    st.session_state["active_name"] = existed_key
+                    st.info(f"File này đã được upload trước đó → chuyển sang: {existed_key}")
+                else:
+                    tables = read_file_safely(up)
+
+                    # Nhiều bảng (Excel/RDS) -> pending để chọn
+                    if len(tables) > 1:
+                        st.session_state["pending_tables"] = tables
+                        st.session_state["pending_fname"] = up.name
+                        st.session_state["pending_file_hash"] = file_hash
+                        st.info(f"File có {len(tables)} bảng (sheet/object). Chọn 1 bảng để nhập.")
+                    else:
+                        df_new = list(tables.values())[0]
+
+                        base = _safe_name(Path(up.name).stem)
+                        key = base
+                        i = 2
+                        while key in st.session_state["datasets"]:
+                            key = f"{base}_{i}"
+                            i += 1
+
+                        # register: lưu hash file + hash df
+                        df_hash = _df_sha256(df_new)
+                        _register_dataset(key, df_new, hashes=[file_hash, df_hash])
+
+                        st.success(f"Đã tải: {key} (rows={df_new.shape[0]}, cols={df_new.shape[1]})")
+
         except Exception as e:
             st.error(f"Không đọc được file: {e}")
 
-    # Nếu đang có pending -> cho chọn bảng để nhập
+    # --- Pending: chọn sheet/object để nhập ---
     if st.session_state["pending_tables"] is not None:
         tables = st.session_state["pending_tables"]
         fname = st.session_state["pending_fname"] or "file"
+        pending_file_hash = st.session_state["pending_file_hash"]
 
         chosen_table = st.selectbox("Chọn sheet/object", options=list(tables.keys()))
         c1, c2 = st.columns([1, 1])
+
         with c1:
             if st.button("✅ Nhập bảng đã chọn", use_container_width=True):
                 df_new = tables[chosen_table]
-                key = f"{fname}::{chosen_table}"
-                if key in st.session_state["datasets"]:
-                    base = _safe_name(key)
+                table_hash = _df_sha256(df_new)
+
+                # Nếu bảng đã nhập trước đó → chỉ chuyển active
+                if table_hash in st.session_state["hash_to_key"]:
+                    existed_key = st.session_state["hash_to_key"][table_hash]
+                    st.session_state["active_name"] = existed_key
+                    st.info(f"Bảng này đã được nhập trước đó → chuyển sang: {existed_key}")
+                else:
+                    base = _safe_name(Path(fname).stem)
+                    sh = _safe_name(chosen_table)
+                    key_base = f"{base}__{sh}"
+                    key = key_base
                     i = 2
-                    while f"{base}_{i}" in st.session_state["datasets"]:
+                    while key in st.session_state["datasets"]:
+                        key = f"{key_base}_{i}"
                         i += 1
-                    key = f"{base}_{i}"
-                st.session_state["datasets"][key] = df_new
-                st.session_state["active_name"] = key
+
+                    hashes = [table_hash]
+                    if pending_file_hash:
+                        hashes.append(pending_file_hash)
+
+                    _register_dataset(key, df_new, hashes=hashes)
+                    st.success(f"Đã nhập: {key} (rows={df_new.shape[0]}, cols={df_new.shape[1]})")
+
                 st.session_state["pending_tables"] = None
                 st.session_state["pending_fname"] = None
-                st.success(f"Đã nhập: {key} (rows={df_new.shape[0]}, cols={df_new.shape[1]})")
+                st.session_state["pending_file_hash"] = None
                 st.rerun()
+
         with c2:
             if st.button("❌ Huỷ", use_container_width=True):
                 st.session_state["pending_tables"] = None
                 st.session_state["pending_fname"] = None
+                st.session_state["pending_file_hash"] = None
                 st.rerun()
 
 with col_right:
@@ -631,7 +651,7 @@ with col_right:
         c1, c2 = st.columns([1, 1])
         with c1:
             if st.button("🗑️ Xóa file đang chọn", use_container_width=True):
-                st.session_state["datasets"].pop(chosen, None)
+                _delete_dataset(chosen)
                 remaining = list(st.session_state["datasets"].keys())
                 st.session_state["active_name"] = remaining[0] if remaining else None
                 st.rerun()
@@ -639,6 +659,12 @@ with col_right:
             if st.button("🧹 Xóa tất cả", use_container_width=True):
                 st.session_state["datasets"] = {}
                 st.session_state["active_name"] = None
+                st.session_state["pending_tables"] = None
+                st.session_state["pending_fname"] = None
+                st.session_state["pending_file_hash"] = None
+                st.session_state["hash_to_key"] = {}
+                st.session_state["key_to_hashes"] = {}
+                st.session_state["last_upload_hash"] = None
                 st.rerun()
 
 with col_left:
@@ -657,6 +683,7 @@ with col_left:
         )
 
 st.divider()
+
 
 # =========================
 # Main area
@@ -690,15 +717,12 @@ with main_right:
     force_opts = ["Tự động", "Định lượng (numeric)", "Phân loại (categorical)"]
     y_force = st.selectbox("Kiểu Y", options=force_opts, index=0)
 
-    # Nếu chỉ 1 X thì cho ép kiểu X (tuỳ chọn)
     x_force = "Tự động"
     if len(x) == 1:
         x_force = st.selectbox("Kiểu X (chỉ áp dụng khi chọn 1 biến X)", options=force_opts, index=0)
 
-    # Logistic event selection (chỉ khi Y cat và binary)
-    y_series = df[y].copy()
-    y_is_cat = var_kind(y_series, y_force) == "cat"
-
+    # Logistic event selection nếu Y nhị phân
+    y_is_cat = var_kind(df[y], y_force) == "cat"
     y_event = None
     if y_is_cat:
         levels = sorted(df[y].dropna().astype(str).unique().tolist())
@@ -709,7 +733,7 @@ with main_right:
         st.info("Chọn ít nhất 1 biến độc lập để phần mềm gợi ý và chạy kết quả.")
         st.stop()
 
-    # Decide: test vs model
+    # Decide mode
     if len(x) == 1:
         suggestion, explanation, test_kind = suggest_single_x_test(df, y, x[0], y_forced=y_force, x_forced=x_force)
         analysis_mode = "test"
@@ -726,11 +750,7 @@ with main_right:
 
     st.divider()
     st.subheader("✅ Phép kiểm / mô hình gợi ý")
-    if analysis_mode == "test":
-        st.write("**Chế độ:** Kiểm định (1 biến độc lập)")
-    else:
-        st.write("**Chế độ:** Mô hình hồi quy (nhiều biến độc lập)")
-
+    st.write("**Chế độ:** " + ("Kiểm định (1 biến độc lập)" if analysis_mode == "test" else "Mô hình hồi quy (nhiều biến độc lập)"))
     st.write(f"**Gợi ý:** {suggestion}")
 
     with st.expander("Giải thích tại sao chọn phương pháp này"):
@@ -741,10 +761,10 @@ with main_right:
             "- Dữ liệu dùng để chạy sẽ **loại dòng thiếu (NA)** theo các biến đã chọn."
         )
 
-    # Với mô hình: show formula trước khi chạy
     model_formula = None
     model_data_used = None
     model_kind = None
+
     if analysis_mode == "model":
         df_model = df.copy()
         if y_force == "Định lượng (numeric)":
@@ -753,6 +773,7 @@ with main_right:
             df_model[y] = df_model[y].astype("string")
 
         model_formula, model_data_used, model_kind = build_formula(df_model, y, x, y_binary_event=y_event)
+
         with st.expander("Xem công thức mô hình (formula)"):
             st.code(model_formula)
             st.caption(f"Số dòng dùng cho mô hình (sau khi loại NA): {model_data_used.shape[0]}")
@@ -778,11 +799,7 @@ with res_left:
                 st.dataframe(result_df, use_container_width=True)
                 st.write("🔎 **Gợi ý diễn giải:**")
                 st.write(interp)
-
             else:
-                if model_formula is None or model_data_used is None or model_kind is None:
-                    raise RuntimeError("Thiếu thông tin mô hình. Hãy thử chọn lại biến.")
-
                 fit, note = run_model(model_formula, model_data_used, model_kind)
                 kind = model_kind.split("||", 1)[0]
                 st.caption(note)
@@ -817,7 +834,6 @@ with res_left:
             st.error(f"Lỗi khi chạy: {e}")
             st.info("Mẹo: kiểm tra dữ liệu (NA), biến phân loại quá nhiều mức, hoặc cỡ mẫu quá nhỏ.")
 
-
 with res_right:
     st.subheader("📈 Biểu đồ minh hoạ")
     if not run:
@@ -838,19 +854,16 @@ with res_right:
                         tmp = tmp.dropna()
                         fig = px.box(tmp, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}")
                         st.plotly_chart(fig, use_container_width=True)
-
                     elif yk == "cat" and xk == "num":
                         tmp[x1] = coerce_numeric(tmp[x1])
                         tmp = tmp.dropna()
                         fig = px.box(tmp, x=y, y=x1, points="all", title=f"{x1} theo nhóm {y}")
                         st.plotly_chart(fig, use_container_width=True)
-
                     elif yk == "cat" and xk == "cat":
                         tab = pd.crosstab(tmp[y].astype(str), tmp[x1].astype(str))
                         tab2 = tab.div(tab.sum(axis=1), axis=0).reset_index().melt(id_vars=[y], var_name=x1, value_name="Tỷ lệ")
                         fig = px.bar(tab2, x=y, y="Tỷ lệ", color=x1, barmode="stack", title=f"Tỷ lệ {x1} theo {y}")
                         st.plotly_chart(fig, use_container_width=True)
-
                     else:
                         tmp[y] = coerce_numeric(tmp[y])
                         tmp[x1] = coerce_numeric(tmp[x1])
@@ -859,58 +872,42 @@ with res_right:
                         st.plotly_chart(fig, use_container_width=True)
 
             else:
-                # model plots: giống logic cũ nhưng dùng model_data_used/fit
-                if model_formula is None or model_data_used is None or model_kind is None:
-                    st.info("Chưa có mô hình để vẽ.")
-                else:
-                    kind = model_kind.split("||", 1)[0]
-                    fit, _ = run_model(model_formula, model_data_used, model_kind)
+                kind = model_kind.split("||", 1)[0]
+                fit, _ = run_model(model_formula, model_data_used, model_kind)
 
-                    if kind == "ols":
-                        x1 = x[0]
-                        if (not is_categorical(model_data_used[x1])) and (not is_categorical(model_data_used[y])):
-                            fig = px.scatter(model_data_used, x=x1, y=y, trendline="ols", title=f"{y} ~ {x1} (kèm trendline)")
-                        else:
-                            if is_categorical(model_data_used[x1]):
-                                fig = px.box(model_data_used, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}")
-                            else:
-                                fig = px.scatter(model_data_used, x=x1, y=y, title=f"{y} theo {x1}")
-                        st.plotly_chart(fig, use_container_width=True)
-
-                        pred = fit.fittedvalues
-                        tmp_plot = pd.DataFrame({"Thực tế": model_data_used[y], "Dự đoán": pred})
-                        fig2 = px.scatter(tmp_plot, x="Thực tế", y="Dự đoán", title="Dự đoán vs Thực tế")
-                        st.plotly_chart(fig2, use_container_width=True)
-
-                    elif kind == "logit":
-                        p = fit.predict()
-                        fig = px.histogram(p, nbins=25, title="Phân bố xác suất dự đoán (p)")
-                        st.plotly_chart(fig, use_container_width=True)
-
-                        y_true = model_data_used["_y01_"].astype(int)
-                        y_pred = (p >= 0.5).astype(int)
-                        tp = int(((y_true == 1) & (y_pred == 1)).sum())
-                        tn = int(((y_true == 0) & (y_pred == 0)).sum())
-                        fp = int(((y_true == 0) & (y_pred == 1)).sum())
-                        fn = int(((y_true == 1) & (y_pred == 0)).sum())
-                        st.write("**Bảng nhầm lẫn (ngưỡng 0.5):**")
-                        st.table(
-                            pd.DataFrame(
-                                {"Dự đoán 0": [tn, fn], "Dự đoán 1": [fp, tp]},
-                                index=["Thực tế 0", "Thực tế 1"],
-                            )
-                        )
-
+                if kind == "ols":
+                    x1 = x[0]
+                    if (not is_categorical(model_data_used[x1])) and (not is_categorical(model_data_used[y])):
+                        fig = px.scatter(model_data_used, x=x1, y=y, trendline="ols", title=f"{y} ~ {x1} (kèm trendline)")
                     else:
-                        st.info("Multinomial: biểu đồ minh hoạ có thể bổ sung theo nhu cầu (RRR, xác suất dự đoán).")
+                        fig = px.box(model_data_used, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}") if is_categorical(model_data_used[x1]) else px.scatter(model_data_used, x=x1, y=y, title=f"{y} theo {x1}")
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    pred = fit.fittedvalues
+                    tmp_plot = pd.DataFrame({"Thực tế": model_data_used[y], "Dự đoán": pred})
+                    fig2 = px.scatter(tmp_plot, x="Thực tế", y="Dự đoán", title="Dự đoán vs Thực tế")
+                    st.plotly_chart(fig2, use_container_width=True)
+
+                elif kind == "logit":
+                    p = fit.predict()
+                    fig = px.histogram(p, nbins=25, title="Phân bố xác suất dự đoán (p)")
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    y_true = model_data_used["_y01_"].astype(int)
+                    y_pred = (p >= 0.5).astype(int)
+                    tp = int(((y_true == 1) & (y_pred == 1)).sum())
+                    tn = int(((y_true == 0) & (y_pred == 0)).sum())
+                    fp = int(((y_true == 0) & (y_pred == 1)).sum())
+                    fn = int(((y_true == 1) & (y_pred == 0)).sum())
+                    st.write("**Bảng nhầm lẫn (ngưỡng 0.5):**")
+                    st.table(pd.DataFrame({"Dự đoán 0": [tn, fn], "Dự đoán 1": [fp, tp]}, index=["Thực tế 0", "Thực tế 1"]))
+
+                else:
+                    st.info("Multinomial: biểu đồ minh hoạ có thể bổ sung theo nhu cầu (RRR, xác suất dự đoán).")
 
         except Exception as e:
             st.warning(f"Không vẽ được biểu đồ: {e}")
 
-
-# =========================
-# Footer
-# =========================
 st.divider()
 st.caption(
     "⚠️ Lưu ý: Công cụ hỗ trợ gợi ý và chạy kiểm định/mô hình cơ bản. "
