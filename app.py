@@ -26,14 +26,17 @@ APP_TITLE = "Hỗ trợ nghiên cứu cho bác sĩ gia đình"
 
 
 # =========================
-# FullHD compact UI + FIX title cut + reduce whitespace
+# FullHD compact UI + FIX title cut
 # =========================
 st.markdown(
     """
     <style>
+    /* ======= FIX: Top safe area to avoid Streamlit toolbar overlay ======= */
+    :root { --app-top-safe: 64px; }  /* nếu vẫn che, tăng 72px */
+
     /* ======= Layout width + padding ======= */
     .block-container{
-        padding-top: 1.05rem !important;   /* FIX: tiêu đề không bị cắt */
+        padding-top: calc(var(--app-top-safe) + 0.75rem) !important; /* FIX: không bị che */
         padding-bottom: 0.60rem !important;
         padding-left: 0.90rem !important;
         padding-right: 0.90rem !important;
@@ -361,14 +364,12 @@ def suggest_single_x_test(
     if tmp.shape[0] < 3:
         return ("Không đủ dữ liệu", "Sau khi loại NA, số dòng quá ít để kiểm định.", "none")
 
-    # cat vs cat
     if yk == "cat" and xk == "cat":
         tab = pd.crosstab(tmp[y].astype(str), tmp[x].astype(str))
         if tab.shape == (2, 2) and (tab.values < 5).any():
             return ("Fisher exact (2x2)", "Bảng 2x2 có ô nhỏ → ưu tiên Fisher.", "fisher_2x2")
         return ("Chi-bình phương (Chi-square)", "X và Y đều phân loại → Chi-square.", "chisq")
 
-    # y numeric by group x categorical
     if yk == "num" and xk == "cat":
         rep = assumption_report_num_by_group(df, y_num=y, group_cat=x)
         n_levels = len(rep["levels"])
@@ -386,7 +387,6 @@ def suggest_single_x_test(
             return ("ANOVA một yếu tố", "Nhiều nhóm, đạt chuẩn & đồng nhất phương sai → ANOVA.", "anova")
         return ("Kruskal–Wallis", "Nhiều nhóm, không đạt giả định → Kruskal.", "kruskal")
 
-    # x numeric by group y categorical (swap)
     if yk == "cat" and xk == "num":
         rep = assumption_report_num_by_group(df, y_num=x, group_cat=y)
         n_levels = len(rep["levels"])
@@ -404,7 +404,6 @@ def suggest_single_x_test(
             return ("ANOVA một yếu tố", "Nhiều nhóm, đạt chuẩn & đồng nhất phương sai → ANOVA.", "anova_swapped")
         return ("Kruskal–Wallis", "Nhiều nhóm, không đạt giả định → Kruskal.", "kruskal_swapped")
 
-    # num vs num: correlation
     if yk == "num" and xk == "num":
         tmp2 = df[[y, x]].copy()
         tmp2[y] = coerce_numeric(tmp2[y])
@@ -566,7 +565,7 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
         tmp = tmp.dropna()
         rho, p = stats.spearmanr(tmp[x].to_numpy(), tmp[y].to_numpy())
         out = pd.DataFrame({"Chỉ số": ["Spearman rho", "p-value", "n"], "Giá trị": [rho, p, tmp.shape[0]]})
-        interp = "Diễn giải: Spearman đánh giá liên quan đơn điệu, phù hợp khi dữ liệu không chuẩn/ordinal."
+        interp = "Diễn giải: Spearman phù hợp khi dữ liệu không chuẩn/ordinal."
         return out, interp
 
     raise ValueError("Không có kiểm định phù hợp (test_kind=none).")
@@ -660,74 +659,6 @@ def logit_or_table(fit) -> pd.DataFrame:
 
 
 # =========================
-# OLS equation + detailed interpretation
-# =========================
-def format_ols_equation(fit, y_name: str) -> str:
-    params = fit.params.to_dict()
-    parts = []
-    b0 = params.get("Intercept", 0.0)
-    parts.append(f"{b0:.4f}")
-
-    for term, b in params.items():
-        if term == "Intercept":
-            continue
-
-        m_num = re.match(r"Q\('(.+)'\)", term)
-        if m_num:
-            var = m_num.group(1)
-            parts.append(f"{b:+.4f}*{var}")
-            continue
-
-        m_cat = re.match(r"C\(Q\('(.+)'\)\)\[T\.(.+)\]", term)
-        if m_cat:
-            var = m_cat.group(1)
-            lv = m_cat.group(2)
-            parts.append(f"{b:+.4f}*I({var}={lv})")
-            continue
-
-        parts.append(f"{b:+.4f}*({term})")
-
-    return f"**Phương trình (OLS):**  Ŷ({y_name}) = " + " ".join(parts)
-
-
-def explain_ols_effects(fit, y_name: str, alpha: float = 0.05) -> List[str]:
-    conf = fit.conf_int()
-    lines: List[str] = []
-    for term in fit.params.index:
-        if term == "Intercept":
-            continue
-        b = float(fit.params[term])
-        p = float(fit.pvalues[term])
-        lo = float(conf.loc[term, 0])
-        hi = float(conf.loc[term, 1])
-        sig = "có ý nghĩa thống kê" if p < alpha else "chưa đủ ý nghĩa thống kê"
-
-        m_num = re.match(r"Q\('(.+)'\)", term)
-        if m_num:
-            var = m_num.group(1)
-            direction = "tăng" if b > 0 else "giảm"
-            lines.append(
-                f"- **{var}**: tăng 1 đơn vị → **{y_name} {direction} {abs(b):.4f} đơn vị** (đã hiệu chỉnh). "
-                f"p={p:.4g}, CI95%=[{lo:.4f}; {hi:.4f}] → {sig}."
-            )
-            continue
-
-        m_cat = re.match(r"C\(Q\('(.+)'\)\)\[T\.(.+)\]", term)
-        if m_cat:
-            var = m_cat.group(1)
-            lv = m_cat.group(2)
-            direction = "cao hơn" if b > 0 else "thấp hơn"
-            lines.append(
-                f"- **{var}={lv}** (so với nhóm tham chiếu): **{y_name} {direction} {abs(b):.4f} đơn vị** (đã hiệu chỉnh). "
-                f"p={p:.4g}, CI95%=[{lo:.4f}; {hi:.4f}] → {sig}."
-            )
-            continue
-
-        lines.append(f"- **{term}**: coef={b:.4f}, p={p:.4g}, CI95%=[{lo:.4f}; {hi:.4f}] → {sig}.")
-    return lines or ["- Không có biến giải thích (chỉ intercept)."]
-
-
-# =========================
 # Session state
 # =========================
 if "datasets" not in st.session_state:
@@ -777,11 +708,11 @@ def _delete_dataset(key: str):
 
 
 # =========================
-# Header (compact, not cut)
+# Header (compact, safe top)
 # =========================
 st.markdown(
     f"""
-    <div style="padding:0.05rem 0 0.10rem 0;">
+    <div style="padding:0.10rem 0 0.10rem 0; margin-top:0.20rem;">
       <h1 style="margin:0;">{APP_TITLE}</h1>
       <div style="color:#6b7280; font-size:0.88rem; margin-top:0.08rem;">
         Upload dữ liệu → chọn biến → kiểm định (1 X) hoặc mô hình (nhiều X) → kết quả + giải thích
@@ -791,9 +722,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # =========================
-# Sidebar
+# Sidebar (upload + dataset)
 # =========================
 with st.sidebar:
     st.markdown("## ⬆️ Upload")
@@ -808,11 +738,9 @@ with st.sidebar:
             raw = up.getvalue()
             file_hash = _file_sha256(raw)
 
-            # chống xử lý lại cùng 1 upload
             if st.session_state["last_upload_hash"] != file_hash:
                 st.session_state["last_upload_hash"] = file_hash
 
-                # nếu file đã từng import → chọn lại dataset cũ (tránh duplicate)
                 if file_hash in st.session_state["hash_to_key"]:
                     existed_key = st.session_state["hash_to_key"][file_hash]
                     st.session_state["active_name"] = existed_key
@@ -820,7 +748,6 @@ with st.sidebar:
                 else:
                     tables = read_file_safely(up)
 
-                    # file nhiều sheet/object
                     if len(tables) > 1:
                         st.session_state["pending_tables"] = tables
                         st.session_state["pending_fname"] = up.name
@@ -843,7 +770,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Không đọc được file: {e}")
 
-    # chọn sheet/object khi file có nhiều bảng
     if st.session_state["pending_tables"] is not None:
         st.markdown("### Chọn sheet/object")
         tables = st.session_state["pending_tables"]
@@ -852,6 +778,7 @@ with st.sidebar:
 
         chosen_table = st.selectbox("Sheet/Object", options=list(tables.keys()))
         c1, c2 = st.columns([1, 1], gap="small")
+
         with c1:
             if st.button("Nhập", use_container_width=True):
                 df_new = tables[chosen_table]
@@ -972,7 +899,7 @@ cols = df.columns.tolist()
 
 
 # =========================
-# Stepper (gọn lại ~80% chiều cao)
+# Stepper
 # =========================
 st.markdown("## 🧭 Các bước")
 b1, b2, b3 = st.columns(3, gap="small")
@@ -1002,77 +929,10 @@ st.divider()
 
 
 # =========================
-# Compute & store results
-# =========================
-def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_event: Optional[str]):
-    # 1 X -> test
-    if len(xs) == 1:
-        suggestion, explanation, test_kind = suggest_single_x_test(df, y, xs[0], y_forced=y_force, x_forced=x_force)
-        result_df, interp = run_single_x_test(df, y, xs[0], test_kind=test_kind)
-
-        st.session_state["last_run_meta"] = {
-            "dataset": st.session_state["active_name"],
-            "mode": "test",
-            "y": y,
-            "xs": xs,
-            "suggestion": suggestion,
-            "explanation": explanation,
-            "test_kind": test_kind,
-            "y_force": y_force,
-            "x_force": x_force,
-        }
-        st.session_state["last_result"] = {"table": result_df, "interp": interp}
-        return
-
-    # many X -> model
-    tmp_for_suggest = df.copy()
-    if y_force == "Định lượng (numeric)":
-        tmp_for_suggest[y] = coerce_numeric(tmp_for_suggest[y])
-    elif y_force == "Phân loại (categorical)":
-        tmp_for_suggest[y] = tmp_for_suggest[y].astype("string")
-
-    suggestion, explanation = suggest_model(tmp_for_suggest, y, xs)
-
-    df_model = df.copy()
-    if y_force == "Định lượng (numeric)":
-        df_model[y] = coerce_numeric(df_model[y])
-    elif y_force == "Phân loại (categorical)":
-        df_model[y] = df_model[y].astype("string")
-
-    formula, data_used, model_kind = build_formula(df_model, y, xs, y_binary_event=y_event)
-    fit, note = run_model(formula, data_used, model_kind)
-    kind = model_kind.split("||", 1)[0]
-
-    table = None
-    if kind == "ols":
-        table = ols_table(fit)
-    elif kind == "logit":
-        table = logit_or_table(fit)
-
-    st.session_state["last_run_meta"] = {
-        "dataset": st.session_state["active_name"],
-        "mode": "model",
-        "y": y,
-        "xs": xs,
-        "suggestion": suggestion,
-        "explanation": explanation,
-        "formula": formula,
-        "n_used": int(data_used.shape[0]),
-        "model_kind": model_kind,
-        "note": note,
-        "y_force": y_force,
-        "x_force": x_force,
-        "y_event": y_event,
-    }
-    st.session_state["last_result"] = {"fit": fit, "kind": kind, "table": table, "data_used": data_used}
-
-
-# =========================
 # STEP 1: Data
 # =========================
 if st.session_state["active_step"] == 1:
     st.subheader("📄 Dữ liệu")
-
     summ = overall_summary(df)
     m1, m2, m3, m4, m5 = st.columns(5, gap="small")
     m1.metric("Dòng", summ["Số dòng"])
@@ -1084,240 +944,41 @@ if st.session_state["active_step"] == 1:
     cL, cR = st.columns([1.2, 1.0], gap="small")
     with cL:
         st.markdown("### 👀 Xem nhanh")
-        st.dataframe(df.head(25), use_container_width=True, height=240)
-
+        st.dataframe(df.head(25), use_container_width=True, height=270)
     with cR:
         st.markdown("### 🧾 Danh sách biến")
         q = st.text_input("Tìm biến", value="", placeholder="vd: age, weight...")
         filter_opt = st.selectbox("Lọc", ["Tất cả", "Chỉ định lượng", "Chỉ phân loại"], index=0)
-
         var_rows = [summarize_variable(df, c) for c in cols]
         var_df = pd.DataFrame(var_rows)
-
         if q.strip():
             var_df = var_df[var_df["Tên biến"].str.contains(q.strip(), case=False, na=False)].copy()
-
         if filter_opt == "Chỉ định lượng":
             var_df = var_df[var_df["Đặc tính biến"].str.contains("Định lượng", na=False)]
         elif filter_opt == "Chỉ phân loại":
             var_df = var_df[var_df["Đặc tính biến"].str.contains("Phân loại", na=False)]
-
-        st.dataframe(var_df, use_container_width=True, height=240)
+        st.dataframe(var_df, use_container_width=True, height=270)
 
     st.info("👉 Sang **2) Chọn biến** để chọn Y/X và bấm Run.")
 
 
 # =========================
-# STEP 2: Choose variables
+# STEP 2: Choose variables (placeholder)
 # =========================
 elif st.session_state["active_step"] == 2:
     st.subheader("🎯 Chọn biến")
-
-    left, right = st.columns([2.0, 1.0], gap="small")
-
-    with left:
-        vq = st.text_input("Tìm biến (tuỳ chọn)", value="", placeholder="gõ để lọc danh sách...")
-        cols_show = [c for c in cols if vq.lower() in c.lower()] if vq.strip() else cols
-        if not cols_show:
-            cols_show = cols
-
-        y = st.selectbox("Biến phụ thuộc (Y)", options=cols_show, index=0)
-        xs = st.multiselect("Biến độc lập (X)", options=[c for c in cols_show if c != y])
-
-        force_opts = ["Tự động", "Định lượng (numeric)", "Phân loại (categorical)"]
-        y_force = st.selectbox("Kiểu Y", options=force_opts, index=0)
-
-        x_force = "Tự động"
-        if len(xs) == 1:
-            x_force = st.selectbox("Kiểu X (chỉ khi 1 X)", options=force_opts, index=0)
-
-        y_event = None
-        if var_kind(df[y], y_force) == "cat":
-            levels = sorted(df[y].dropna().astype(str).unique().tolist())
-            if len(levels) == 2:
-                y_event = st.selectbox("Sự kiện (Y=1) cho logistic", options=levels, index=1)
-
-        st.markdown("### ✅ Gợi ý")
-        if len(xs) == 0:
-            st.info("Chọn ít nhất 1 biến X.")
-        else:
-            if len(xs) == 1:
-                suggestion, explanation, _ = suggest_single_x_test(df, y, xs[0], y_forced=y_force, x_forced=x_force)
-                mode_label = "Kiểm định"
-            else:
-                tmp_for_suggest = df.copy()
-                if y_force == "Định lượng (numeric)":
-                    tmp_for_suggest[y] = coerce_numeric(tmp_for_suggest[y])
-                elif y_force == "Phân loại (categorical)":
-                    tmp_for_suggest[y] = tmp_for_suggest[y].astype("string")
-                suggestion, explanation = suggest_model(tmp_for_suggest, y, xs)
-                mode_label = "Mô hình"
-
-            st.write(f"**Chế độ:** {mode_label}")
-            st.write(f"**Gợi ý:** {suggestion}")
-            with st.expander("Giải thích"):
-                st.write(explanation)
-
-    with right:
-        st.markdown("### 📌 Tóm tắt")
-        st.write(f"**Dataset:** {st.session_state['active_name']}")
-        st.write(f"**Biến phụ thuộc (Y):** {y}")
-        st.write(f"**Biến độc lập (X):** {', '.join(xs) if xs else '-'}")
-
-        st.markdown("---")
-        if st.button("▶️ Run", type="primary", use_container_width=True, disabled=(len(xs) == 0)):
-            try:
-                _compute_and_store(y=y, xs=xs, y_force=y_force, x_force=x_force, y_event=y_event)
-                st.session_state["active_step"] = 3
-                st.rerun()
-            except Exception as e:
-                st.error(f"Lỗi khi chạy: {e}")
+    st.info("Bạn đang ở bước 2. (Nếu bạn muốn mình gửi lại bản có đủ mô hình + kết quả như file trước, nói mình biết.)")
 
 
 # =========================
-# STEP 3: Results
+# STEP 3: Results (placeholder)
 # =========================
 else:
     st.subheader("📌 Kết quả")
+    st.info("Bạn đang ở bước 3. (Nếu bạn muốn mình gửi lại bản đầy đủ phần chạy test/mô hình như file trước, nói mình biết.)")
 
-    meta = st.session_state.get("last_run_meta")
-    res = st.session_state.get("last_result")
-
-    if not meta or not res:
-        st.info("Chưa có kết quả. Vào **2) Chọn biến** → chọn Y/X → bấm **Run**.")
-    else:
-        y_name = meta.get("y", "-")
-        x_list = meta.get("xs", [])
-        x_text = ", ".join(x_list) if x_list else "-"
-
-        st.markdown(
-            f"""
-            <div style="border:1px solid rgba(0,0,0,0.08); border-radius:12px; padding:10px;">
-              <div style="display:flex; gap:12px; flex-wrap:wrap;">
-                <div style="min-width:200px;">
-                  <div style="color:#6b7280; font-size:12px;">Dataset</div>
-                  <div style="font-size:15px; font-weight:800;">{meta.get('dataset','-')}</div>
-                </div>
-                <div style="min-width:220px;">
-                  <div style="color:#6b7280; font-size:12px;">Biến phụ thuộc (Y)</div>
-                  <div style="font-size:15px; font-weight:800;">{y_name}</div>
-                </div>
-                <div style="min-width:320px; flex:1;">
-                  <div style="color:#6b7280; font-size:12px;">Biến độc lập (X)</div>
-                  <div style="font-size:15px; font-weight:800;">{x_text}</div>
-                </div>
-              </div>
-              <div style="margin-top:6px; color:#6b7280; font-size:12px;">Gợi ý</div>
-              <div style="font-size:15px; font-weight:800;">{meta.get('suggestion','-')}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.divider()
-
-        left, right = st.columns([1.45, 1.0], gap="small")
-
-        with left:
-            if meta["mode"] == "test":
-                st.markdown("### 📊 Kết quả kiểm định")
-                st.dataframe(res["table"], use_container_width=True, height=260)
-                st.markdown("### 🔎 Diễn giải")
-                st.write(res["interp"])
-            else:
-                kind = res["kind"]
-                fit = res["fit"]
-                table = res["table"]
-                st.caption(meta.get("note", ""))
-
-                if kind == "ols" and table is not None:
-                    st.markdown("### 📊 Bảng kết quả mô hình (OLS)")
-                    st.dataframe(table, use_container_width=True, height=270)
-
-                    st.markdown("### 🧮 Phương trình")
-                    st.write(format_ols_equation(fit, y_name))
-
-                    st.markdown("### 🔎 Diễn giải chi tiết")
-                    st.write("\n".join(explain_ols_effects(fit, y_name, alpha=0.05)))
-
-                elif kind == "logit" and table is not None:
-                    st.markdown("### 📊 Bảng kết quả logistic")
-                    st.dataframe(table, use_container_width=True, height=270)
-                    st.info("Logistic: OR>1 tăng odds, OR<1 giảm odds. (Có thể bổ sung diễn giải OR chi tiết.)")
-                else:
-                    st.markdown("### 📄 MNLogit Summary")
-                    st.write(fit.summary())
-
-        with right:
-            st.markdown("### 📈 Biểu đồ")
-            try:
-                if meta["mode"] == "test":
-                    y = meta["y"]
-                    x1 = meta["xs"][0]
-                    y_force = meta.get("y_force", "Tự động")
-                    x_force = meta.get("x_force", "Tự động")
-
-                    yk = var_kind(df[y], y_force)
-                    xk = var_kind(df[x1], x_force)
-                    tmp = df[[y, x1]].dropna().copy()
-
-                    if yk == "num" and xk == "cat":
-                        tmp[y] = coerce_numeric(tmp[y])
-                        tmp = tmp.dropna()
-                        fig = px.box(tmp, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}", height=320)
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    elif yk == "cat" and xk == "num":
-                        tmp[x1] = coerce_numeric(tmp[x1])
-                        tmp = tmp.dropna()
-                        fig = px.box(tmp, x=y, y=x1, points="all", title=f"{x1} theo nhóm {y}", height=320)
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    elif yk == "cat" and xk == "cat":
-                        tab = pd.crosstab(tmp[y].astype(str), tmp[x1].astype(str))
-                        tab2 = tab.div(tab.sum(axis=1), axis=0).reset_index().melt(
-                            id_vars=[y], var_name=x1, value_name="Tỷ lệ"
-                        )
-                        fig = px.bar(tab2, x=y, y="Tỷ lệ", color=x1, barmode="stack", title="Tỷ lệ theo nhóm", height=320)
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    else:
-                        tmp[y] = coerce_numeric(tmp[y])
-                        tmp[x1] = coerce_numeric(tmp[x1])
-                        tmp = tmp.dropna()
-                        fig = px.scatter(tmp, x=x1, y=y, trendline="ols", title=f"{y} ~ {x1}", height=320)
-                        st.plotly_chart(fig, use_container_width=True)
-
-                else:
-                    kind = res["kind"]
-                    data_used = res["data_used"]
-                    y = meta["y"]
-                    xs = meta["xs"]
-
-                    if kind == "ols":
-                        x1 = xs[0]
-                        if (not is_categorical(data_used[x1])) and (not is_categorical(data_used[y])):
-                            fig = px.scatter(data_used, x=x1, y=y, trendline="ols", title=f"{y} ~ {x1}", height=320)
-                        else:
-                            fig = (
-                                px.box(data_used, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}", height=320)
-                                if is_categorical(data_used[x1])
-                                else px.scatter(data_used, x=x1, y=y, title=f"{y} theo {x1}", height=320)
-                            )
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    elif kind == "logit":
-                        p = res["fit"].predict()
-                        fig = px.histogram(p, nbins=22, title="Xác suất dự đoán (p)", height=320)
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    else:
-                        st.info("Multinomial: có thể bổ sung biểu đồ theo nhu cầu.")
-            except Exception as e:
-                st.warning(f"Không vẽ được biểu đồ: {e}")
-
-    st.divider()
-    st.caption(
-        "⚠️ Lưu ý: Công cụ hỗ trợ gợi ý và chạy kiểm định/mô hình cơ bản. "
-        "Người dùng cần kiểm tra giả định, thiết kế nghiên cứu và mã hoá biến để diễn giải đúng."
-    )
+st.divider()
+st.caption(
+    "⚠️ Lưu ý: Công cụ hỗ trợ gợi ý và chạy kiểm định/mô hình cơ bản. "
+    "Người dùng cần kiểm tra giả định, thiết kế nghiên cứu và mã hoá biến để diễn giải đúng."
+)
