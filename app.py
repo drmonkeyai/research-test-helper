@@ -21,52 +21,57 @@ st.set_page_config(
     page_icon="🔬",
     layout="wide",
 )
+
 APP_TITLE = "Hỗ trợ nghiên cứu cho bác sĩ gia đình"
 
 
 # =========================
-# FULL HD compact UI (giảm khoảng trống mạnh)
+# FullHD compact UI + FIX title cut + reduce whitespace
 # =========================
 st.markdown(
     """
     <style>
     /* ======= Layout width + padding ======= */
     .block-container{
-        padding-top: 0.45rem !important;
-        padding-bottom: 0.55rem !important;
-        padding-left: 0.9rem !important;
-        padding-right: 0.9rem !important;
-        max-width: 1600px !important; /* full HD */
+        padding-top: 1.05rem !important;   /* FIX: tiêu đề không bị cắt */
+        padding-bottom: 0.60rem !important;
+        padding-left: 0.90rem !important;
+        padding-right: 0.90rem !important;
+        max-width: 1600px !important;      /* Full HD */
     }
 
-    /* ======= Typography ======= */
-    h1 { font-size: 2.05rem !important; margin: 0.0rem 0 0.2rem 0 !important; line-height: 2.3rem !important; }
-    h2 { font-size: 1.45rem !important; margin: 0.45rem 0 0.25rem 0 !important; }
-    h3 { font-size: 1.12rem !important; margin: 0.45rem 0 0.25rem 0 !important; }
-    p, li, label, div { font-size: 0.96rem; }
+    /* ======= Typography (gọn hơn ~80%) ======= */
+    h1 {
+        font-size: 1.70rem !important;
+        margin: 0.0rem 0 0.10rem 0 !important;
+        line-height: 2.05rem !important;
+    }
+    h2 { font-size: 1.25rem !important; margin: 0.35rem 0 0.20rem 0 !important; }
+    h3 { font-size: 1.05rem !important; margin: 0.35rem 0 0.20rem 0 !important; }
+    p, li, label, div { font-size: 0.95rem; }
 
-    /* ======= Reduce default gaps between elements ======= */
-    div[data-testid="stVerticalBlock"] { gap: 0.35rem; }
-    .stMarkdown { margin-bottom: 0.15rem !important; }
-    .stCaptionContainer { margin-top: -0.2rem !important; }
+    /* ======= Reduce gaps ======= */
+    div[data-testid="stVerticalBlock"] { gap: 0.28rem; }
+    .stMarkdown { margin-bottom: 0.10rem !important; }
+    .stCaptionContainer { margin-top: -0.18rem !important; }
 
     /* ======= Widgets spacing ======= */
     .stSelectbox, .stMultiSelect, .stTextInput, .stFileUploader, .stRadio, .stCheckbox {
-        margin-bottom: 0.2rem !important;
+        margin-bottom: 0.15rem !important;
     }
 
     /* ======= Divider ======= */
-    hr { margin: 0.45rem 0 !important; }
+    hr { margin: 0.40rem 0 !important; }
 
-    /* ======= Buttons ======= */
+    /* ======= Buttons (gọn hơn) ======= */
     div.stButton > button{
         width: 100%;
-        padding: 10px 12px !important;
+        padding: 8px 10px !important;
         border-radius: 12px !important;
-        font-size: 15px !important;
-        font-weight: 750 !important;
+        font-size: 14px !important;
+        font-weight: 780 !important;
         border: 1px solid rgba(0,0,0,0.10) !important;
-        box-shadow: 0 1px 6px rgba(0,0,0,0.06) !important;
+        box-shadow: 0 1px 5px rgba(0,0,0,0.06) !important;
     }
 
     /* ======= Sidebar compact ======= */
@@ -81,8 +86,14 @@ st.markdown(
         font-size: 0.90rem !important;
     }
 
-    /* ======= Tables/Dataframes ======= */
-    .stDataFrame { margin-top: 0.1rem !important; }
+    /* ======= Dataframes ======= */
+    .stDataFrame { margin-top: 0.10rem !important; }
+
+    /* ======= Caption dưới stepper gọn ======= */
+    [data-testid="stCaptionContainer"] {
+        font-size: 0.80rem !important;
+        line-height: 1.05rem !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -106,7 +117,7 @@ def _df_sha256(df: pd.DataFrame) -> str:
 
 
 # =========================
-# Helpers: read files
+# Read files safely
 # =========================
 def read_csv_safely(uploaded_file) -> pd.DataFrame:
     raw = uploaded_file.getvalue()
@@ -151,6 +162,7 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
         return out
 
     if ext == ".xls":
+        # cần xlrd>=2.0.1
         xls = pd.ExcelFile(io.BytesIO(raw), engine="xlrd")
         out: Dict[str, pd.DataFrame] = {}
         for sh in xls.sheet_names:
@@ -158,6 +170,7 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
         return out
 
     if ext in [".sav", ".zsav"]:
+        # FIX lỗi BytesIO: đọc qua file tạm
         df = _read_via_tempfile(raw, ext, pd.read_spss)
         return {"data": df}
 
@@ -188,7 +201,7 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
 
 
 # =========================
-# Helpers: type detection
+# Type detection
 # =========================
 def is_categorical(s: pd.Series) -> bool:
     if pd.api.types.is_bool_dtype(s) or pd.api.types.is_object_dtype(s) or pd.api.types.is_categorical_dtype(s):
@@ -224,10 +237,7 @@ def summarize_variable(df: pd.DataFrame, col: str) -> Dict[str, str]:
     if is_categorical(s):
         vc = s.astype("string").value_counts(dropna=True).head(3)
         top = ", ".join([f"{idx} ({val})" for idx, val in vc.items()]) if len(vc) else "-"
-        return {
-            "Tên biến": col,
-            "Đặc tính biến": f"Phân loại | mức={nunique} | thiếu={miss}/{n} | top: {top}",
-        }
+        return {"Tên biến": col, "Đặc tính biến": f"Phân loại | mức={nunique} | thiếu={miss}/{n} | top: {top}"}
 
     x = coerce_numeric(s)
     x_non = x.dropna()
@@ -304,13 +314,7 @@ def assumption_report_num_by_group(df: pd.DataFrame, y_num: str, group_cat: str)
         norm_p[lv] = normality_pvalue(a)
 
     lev_p = variance_homogeneity_pvalue(arrays)
-    return {
-        "levels": levels,
-        "n": ns,
-        "normality_p": norm_p,
-        "levene_p": lev_p,
-        "total_n": int(tmp.shape[0]),
-    }
+    return {"levels": levels, "n": ns, "normality_p": norm_p, "levene_p": lev_p, "total_n": int(tmp.shape[0])}
 
 
 def _norm_ok(report: dict, alpha: float = 0.05) -> bool:
@@ -357,12 +361,14 @@ def suggest_single_x_test(
     if tmp.shape[0] < 3:
         return ("Không đủ dữ liệu", "Sau khi loại NA, số dòng quá ít để kiểm định.", "none")
 
+    # cat vs cat
     if yk == "cat" and xk == "cat":
         tab = pd.crosstab(tmp[y].astype(str), tmp[x].astype(str))
         if tab.shape == (2, 2) and (tab.values < 5).any():
             return ("Fisher exact (2x2)", "Bảng 2x2 có ô nhỏ → ưu tiên Fisher.", "fisher_2x2")
         return ("Chi-bình phương (Chi-square)", "X và Y đều phân loại → Chi-square.", "chisq")
 
+    # y numeric by group x categorical
     if yk == "num" and xk == "cat":
         rep = assumption_report_num_by_group(df, y_num=y, group_cat=x)
         n_levels = len(rep["levels"])
@@ -380,6 +386,7 @@ def suggest_single_x_test(
             return ("ANOVA một yếu tố", "Nhiều nhóm, đạt chuẩn & đồng nhất phương sai → ANOVA.", "anova")
         return ("Kruskal–Wallis", "Nhiều nhóm, không đạt giả định → Kruskal.", "kruskal")
 
+    # x numeric by group y categorical (swap)
     if yk == "cat" and xk == "num":
         rep = assumption_report_num_by_group(df, y_num=x, group_cat=y)
         n_levels = len(rep["levels"])
@@ -397,6 +404,7 @@ def suggest_single_x_test(
             return ("ANOVA một yếu tố", "Nhiều nhóm, đạt chuẩn & đồng nhất phương sai → ANOVA.", "anova_swapped")
         return ("Kruskal–Wallis", "Nhiều nhóm, không đạt giả định → Kruskal.", "kruskal_swapped")
 
+    # num vs num: correlation
     if yk == "num" and xk == "num":
         tmp2 = df[[y, x]].copy()
         tmp2[y] = coerce_numeric(tmp2[y])
@@ -474,7 +482,7 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
             tstat, p = stats.ttest_ind(a, b, equal_var=equal_var, nan_policy="omit")
             d = _cohens_d(a, b)
             out = pd.DataFrame({"Chỉ số": ["t", "p-value", "Cohen's d"], "Giá trị": [tstat, p, d]})
-            interp = f"{assump}\nDiễn giải: p nhỏ → gợi ý trung bình khác nhau giữa 2 nhóm. Cohen’s d là effect size."
+            interp = f"{assump}\nDiễn giải: p nhỏ → trung bình khác nhau giữa 2 nhóm. Cohen’s d là effect size."
             return out, interp
 
         if test_kind == "mwu":
@@ -498,7 +506,7 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
             interp = f"{assump}\nDiễn giải: dùng khi không đạt giả định; nếu có ý nghĩa nên post-hoc."
             return out, interp
 
-    if test_kind in ("ttest_student_swapped", "ttest_welch_swapped", "mwu_swapped", "anova_swapped", "kruskal_swapped"):
+    if test_kind.endswith("_swapped"):
         tmp = df[[y, x]].dropna().copy()
         tmp[x] = coerce_numeric(tmp[x])
         tmp = tmp.dropna()
@@ -507,20 +515,20 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
         arrays = [tmp.loc[groups == lv, x].to_numpy() for lv in levels]
         rep = assumption_report_num_by_group(df, y_num=x, group_cat=y)
         assump = _assumption_text(rep)
+        base = test_kind.replace("_swapped", "")
 
-        base_kind = test_kind.replace("_swapped", "")
-        if base_kind in ("ttest_student", "ttest_welch"):
+        if base in ("ttest_student", "ttest_welch"):
             if len(levels) != 2:
                 raise ValueError("t-test cần đúng 2 nhóm.")
             a, b = arrays[0], arrays[1]
-            equal_var = (base_kind == "ttest_student")
+            equal_var = (base == "ttest_student")
             tstat, p = stats.ttest_ind(a, b, equal_var=equal_var, nan_policy="omit")
             d = _cohens_d(a, b)
             out = pd.DataFrame({"Chỉ số": ["t", "p-value", "Cohen's d"], "Giá trị": [tstat, p, d]})
-            interp = f"{assump}\nDiễn giải: p nhỏ → gợi ý trung bình X khác nhau giữa 2 nhóm Y."
+            interp = f"{assump}\nDiễn giải: p nhỏ → trung bình khác nhau giữa 2 nhóm (theo Y)."
             return out, interp
 
-        if base_kind == "mwu":
+        if base == "mwu":
             if len(levels) != 2:
                 raise ValueError("Mann–Whitney cần đúng 2 nhóm.")
             a, b = arrays[0], arrays[1]
@@ -529,13 +537,13 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
             interp = f"{assump}\nDiễn giải: dùng khi không đạt giả định chuẩn."
             return out, interp
 
-        if base_kind == "anova":
+        if base == "anova":
             f, p = stats.f_oneway(*arrays)
             out = pd.DataFrame({"Chỉ số": ["F", "p-value"], "Giá trị": [f, p]})
-            interp = f"{assump}\nDiễn giải: p nhỏ → có ít nhất 1 nhóm khác trung bình; nên post-hoc."
+            interp = f"{assump}\nDiễn giải: p nhỏ → có ít nhất 1 nhóm khác trung bình; nên làm post-hoc."
             return out, interp
 
-        if base_kind == "kruskal":
+        if base == "kruskal":
             h, p = stats.kruskal(*arrays)
             out = pd.DataFrame({"Chỉ số": ["H (Kruskal)", "p-value"], "Giá trị": [h, p]})
             interp = f"{assump}\nDiễn giải: dùng khi không đạt giả định; nếu có ý nghĩa nên post-hoc."
@@ -652,7 +660,7 @@ def logit_or_table(fit) -> pd.DataFrame:
 
 
 # =========================
-# Equation + detailed interpretation
+# OLS equation + detailed interpretation
 # =========================
 def format_ols_equation(fit, y_name: str) -> str:
     params = fit.params.to_dict()
@@ -699,7 +707,7 @@ def explain_ols_effects(fit, y_name: str, alpha: float = 0.05) -> List[str]:
             var = m_num.group(1)
             direction = "tăng" if b > 0 else "giảm"
             lines.append(
-                f"- **{var}**: tăng 1 đơn vị → **{y_name} {direction} {abs(b):.4f} đơn vị** (adjusted). "
+                f"- **{var}**: tăng 1 đơn vị → **{y_name} {direction} {abs(b):.4f} đơn vị** (đã hiệu chỉnh). "
                 f"p={p:.4g}, CI95%=[{lo:.4f}; {hi:.4f}] → {sig}."
             )
             continue
@@ -710,7 +718,7 @@ def explain_ols_effects(fit, y_name: str, alpha: float = 0.05) -> List[str]:
             lv = m_cat.group(2)
             direction = "cao hơn" if b > 0 else "thấp hơn"
             lines.append(
-                f"- **{var}={lv}** (so với nhóm tham chiếu): **{y_name} {direction} {abs(b):.4f} đơn vị** (adjusted). "
+                f"- **{var}={lv}** (so với nhóm tham chiếu): **{y_name} {direction} {abs(b):.4f} đơn vị** (đã hiệu chỉnh). "
                 f"p={p:.4g}, CI95%=[{lo:.4f}; {hi:.4f}] → {sig}."
             )
             continue
@@ -738,6 +746,7 @@ if "hash_to_key" not in st.session_state:
     st.session_state["hash_to_key"] = {}
 if "key_to_hashes" not in st.session_state:
     st.session_state["key_to_hashes"] = {}
+
 if "last_upload_hash" not in st.session_state:
     st.session_state["last_upload_hash"] = None
 
@@ -768,13 +777,13 @@ def _delete_dataset(key: str):
 
 
 # =========================
-# Header (compact)
+# Header (compact, not cut)
 # =========================
 st.markdown(
     f"""
-    <div style="padding:0.05rem 0 0.15rem 0;">
-      <h1>{APP_TITLE}</h1>
-      <div style="color:#6b7280; font-size:0.92rem; margin-top:0.15rem;">
+    <div style="padding:0.05rem 0 0.10rem 0;">
+      <h1 style="margin:0;">{APP_TITLE}</h1>
+      <div style="color:#6b7280; font-size:0.88rem; margin-top:0.08rem;">
         Upload dữ liệu → chọn biến → kiểm định (1 X) hoặc mô hình (nhiều X) → kết quả + giải thích
       </div>
     </div>
@@ -784,7 +793,7 @@ st.markdown(
 
 
 # =========================
-# Sidebar (compact)
+# Sidebar
 # =========================
 with st.sidebar:
     st.markdown("## ⬆️ Upload")
@@ -799,9 +808,11 @@ with st.sidebar:
             raw = up.getvalue()
             file_hash = _file_sha256(raw)
 
+            # chống xử lý lại cùng 1 upload
             if st.session_state["last_upload_hash"] != file_hash:
                 st.session_state["last_upload_hash"] = file_hash
 
+                # nếu file đã từng import → chọn lại dataset cũ (tránh duplicate)
                 if file_hash in st.session_state["hash_to_key"]:
                     existed_key = st.session_state["hash_to_key"][file_hash]
                     st.session_state["active_name"] = existed_key
@@ -809,6 +820,7 @@ with st.sidebar:
                 else:
                     tables = read_file_safely(up)
 
+                    # file nhiều sheet/object
                     if len(tables) > 1:
                         st.session_state["pending_tables"] = tables
                         st.session_state["pending_fname"] = up.name
@@ -831,6 +843,7 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Không đọc được file: {e}")
 
+    # chọn sheet/object khi file có nhiều bảng
     if st.session_state["pending_tables"] is not None:
         st.markdown("### Chọn sheet/object")
         tables = st.session_state["pending_tables"]
@@ -861,6 +874,7 @@ with st.sidebar:
                     hashes = [table_hash]
                     if pending_file_hash:
                         hashes.append(pending_file_hash)
+
                     _register_dataset(key, df_new, hashes=hashes)
                     st.session_state["active_step"] = 1
                     st.success(f"Đã nhập: {key}")
@@ -920,8 +934,8 @@ with st.sidebar:
                 st.rerun()
 
     df_active = st.session_state["datasets"][st.session_state["active_name"]]
-    summ = overall_summary(df_active)
-    st.caption(f"rows={summ['Số dòng']} | biến={summ['Số biến']} | thiếu={summ['Ô thiếu (NA)']}")
+    summ_side = overall_summary(df_active)
+    st.caption(f"rows={summ_side['Số dòng']} | biến={summ_side['Số biến']} | thiếu={summ_side['Ô thiếu (NA)']}")
 
     c1, c2 = st.columns([1, 1], gap="small")
     with c1:
@@ -958,7 +972,7 @@ cols = df.columns.tolist()
 
 
 # =========================
-# Stepper buttons (gọn – ít khoảng trống)
+# Stepper (gọn lại ~80% chiều cao)
 # =========================
 st.markdown("## 🧭 Các bước")
 b1, b2, b3 = st.columns(3, gap="small")
@@ -988,9 +1002,10 @@ st.divider()
 
 
 # =========================
-# Compute and store results
+# Compute & store results
 # =========================
 def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_event: Optional[str]):
+    # 1 X -> test
     if len(xs) == 1:
         suggestion, explanation, test_kind = suggest_single_x_test(df, y, xs[0], y_forced=y_force, x_forced=x_force)
         result_df, interp = run_single_x_test(df, y, xs[0], test_kind=test_kind)
@@ -1009,6 +1024,7 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
         st.session_state["last_result"] = {"table": result_df, "interp": interp}
         return
 
+    # many X -> model
     tmp_for_suggest = df.copy()
     if y_force == "Định lượng (numeric)":
         tmp_for_suggest[y] = coerce_numeric(tmp_for_suggest[y])
@@ -1066,7 +1082,6 @@ if st.session_state["active_step"] == 1:
     m5.metric("NA", summ["Ô thiếu (NA)"])
 
     cL, cR = st.columns([1.2, 1.0], gap="small")
-
     with cL:
         st.markdown("### 👀 Xem nhanh")
         st.dataframe(df.head(25), use_container_width=True, height=240)
@@ -1111,6 +1126,7 @@ elif st.session_state["active_step"] == 2:
 
         force_opts = ["Tự động", "Định lượng (numeric)", "Phân loại (categorical)"]
         y_force = st.selectbox("Kiểu Y", options=force_opts, index=0)
+
         x_force = "Tự động"
         if len(xs) == 1:
             x_force = st.selectbox("Kiểu X (chỉ khi 1 X)", options=force_opts, index=0)
@@ -1145,8 +1161,8 @@ elif st.session_state["active_step"] == 2:
     with right:
         st.markdown("### 📌 Tóm tắt")
         st.write(f"**Dataset:** {st.session_state['active_name']}")
-        st.write(f"**Y:** {y}")
-        st.write(f"**X:** {', '.join(xs) if xs else '-'}")
+        st.write(f"**Biến phụ thuộc (Y):** {y}")
+        st.write(f"**Biến độc lập (X):** {', '.join(xs) if xs else '-'}")
 
         st.markdown("---")
         if st.button("▶️ Run", type="primary", use_container_width=True, disabled=(len(xs) == 0)):
@@ -1159,7 +1175,7 @@ elif st.session_state["active_step"] == 2:
 
 
 # =========================
-# STEP 3: Results (compact)
+# STEP 3: Results
 # =========================
 else:
     st.subheader("📌 Kết quả")
@@ -1170,7 +1186,6 @@ else:
     if not meta or not res:
         st.info("Chưa có kết quả. Vào **2) Chọn biến** → chọn Y/X → bấm **Run**.")
     else:
-        # Summary compact
         y_name = meta.get("y", "-")
         x_list = meta.get("xs", [])
         x_text = ", ".join(x_list) if x_list else "-"
@@ -1183,7 +1198,7 @@ else:
                   <div style="color:#6b7280; font-size:12px;">Dataset</div>
                   <div style="font-size:15px; font-weight:800;">{meta.get('dataset','-')}</div>
                 </div>
-                <div style="min-width:200px;">
+                <div style="min-width:220px;">
                   <div style="color:#6b7280; font-size:12px;">Biến phụ thuộc (Y)</div>
                   <div style="font-size:15px; font-weight:800;">{y_name}</div>
                 </div>
@@ -1201,7 +1216,6 @@ else:
 
         st.divider()
 
-        # Results layout compact (table left, plot right)
         left, right = st.columns([1.45, 1.0], gap="small")
 
         with left:
@@ -1219,16 +1233,17 @@ else:
                 if kind == "ols" and table is not None:
                     st.markdown("### 📊 Bảng kết quả mô hình (OLS)")
                     st.dataframe(table, use_container_width=True, height=270)
+
                     st.markdown("### 🧮 Phương trình")
                     st.write(format_ols_equation(fit, y_name))
+
                     st.markdown("### 🔎 Diễn giải chi tiết")
                     st.write("\n".join(explain_ols_effects(fit, y_name, alpha=0.05)))
 
                 elif kind == "logit" and table is not None:
                     st.markdown("### 📊 Bảng kết quả logistic")
                     st.dataframe(table, use_container_width=True, height=270)
-                    st.info("Logistic: OR>1 tăng odds, OR<1 giảm odds. (Có thể bổ sung diễn giải OR chi tiết nếu bạn cần.)")
-
+                    st.info("Logistic: OR>1 tăng odds, OR<1 giảm odds. (Có thể bổ sung diễn giải OR chi tiết.)")
                 else:
                     st.markdown("### 📄 MNLogit Summary")
                     st.write(fit.summary())
@@ -1249,13 +1264,13 @@ else:
                     if yk == "num" and xk == "cat":
                         tmp[y] = coerce_numeric(tmp[y])
                         tmp = tmp.dropna()
-                        fig = px.box(tmp, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}", height=340)
+                        fig = px.box(tmp, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}", height=320)
                         st.plotly_chart(fig, use_container_width=True)
 
                     elif yk == "cat" and xk == "num":
                         tmp[x1] = coerce_numeric(tmp[x1])
                         tmp = tmp.dropna()
-                        fig = px.box(tmp, x=y, y=x1, points="all", title=f"{x1} theo nhóm {y}", height=340)
+                        fig = px.box(tmp, x=y, y=x1, points="all", title=f"{x1} theo nhóm {y}", height=320)
                         st.plotly_chart(fig, use_container_width=True)
 
                     elif yk == "cat" and xk == "cat":
@@ -1263,14 +1278,14 @@ else:
                         tab2 = tab.div(tab.sum(axis=1), axis=0).reset_index().melt(
                             id_vars=[y], var_name=x1, value_name="Tỷ lệ"
                         )
-                        fig = px.bar(tab2, x=y, y="Tỷ lệ", color=x1, barmode="stack", title="Tỷ lệ theo nhóm", height=340)
+                        fig = px.bar(tab2, x=y, y="Tỷ lệ", color=x1, barmode="stack", title="Tỷ lệ theo nhóm", height=320)
                         st.plotly_chart(fig, use_container_width=True)
 
                     else:
                         tmp[y] = coerce_numeric(tmp[y])
                         tmp[x1] = coerce_numeric(tmp[x1])
                         tmp = tmp.dropna()
-                        fig = px.scatter(tmp, x=x1, y=y, trendline="ols", title=f"{y} ~ {x1}", height=340)
+                        fig = px.scatter(tmp, x=x1, y=y, trendline="ols", title=f"{y} ~ {x1}", height=320)
                         st.plotly_chart(fig, use_container_width=True)
 
                 else:
@@ -1282,19 +1297,20 @@ else:
                     if kind == "ols":
                         x1 = xs[0]
                         if (not is_categorical(data_used[x1])) and (not is_categorical(data_used[y])):
-                            fig = px.scatter(data_used, x=x1, y=y, trendline="ols", title=f"{y} ~ {x1}", height=340)
+                            fig = px.scatter(data_used, x=x1, y=y, trendline="ols", title=f"{y} ~ {x1}", height=320)
                         else:
                             fig = (
-                                px.box(data_used, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}", height=340)
+                                px.box(data_used, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}", height=320)
                                 if is_categorical(data_used[x1])
-                                else px.scatter(data_used, x=x1, y=y, title=f"{y} theo {x1}", height=340)
+                                else px.scatter(data_used, x=x1, y=y, title=f"{y} theo {x1}", height=320)
                             )
                         st.plotly_chart(fig, use_container_width=True)
 
                     elif kind == "logit":
                         p = res["fit"].predict()
-                        fig = px.histogram(p, nbins=22, title="Xác suất dự đoán (p)", height=340)
+                        fig = px.histogram(p, nbins=22, title="Xác suất dự đoán (p)", height=320)
                         st.plotly_chart(fig, use_container_width=True)
+
                     else:
                         st.info("Multinomial: có thể bổ sung biểu đồ theo nhu cầu.")
             except Exception as e:
