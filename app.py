@@ -41,7 +41,7 @@ st.markdown(
         max-width: 1600px !important;  /* Full HD */
     }
 
-    h1{ font-size: 1.95rem !important; font-weight: 900 !important; margin:0.05rem 0 0.15rem 0 !important; }
+    h1{ font-size: 2.05rem !important; font-weight: 900 !important; margin:0.05rem 0 0.15rem 0 !important; }
     h2{ font-size: 1.25rem !important; margin:0.35rem 0 0.20rem 0 !important; }
     h3{ font-size: 1.05rem !important; margin:0.30rem 0 0.18rem 0 !important; }
     p, li, label, div{ font-size: 0.95rem; }
@@ -161,26 +161,24 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
         try:
             xls = pd.ExcelFile(io.BytesIO(raw), engine="openpyxl")
         except Exception as e:
-            raise RuntimeError("Không đọc được .xlsx. Hãy cài openpyxl: pip install openpyxl") from e
+            raise RuntimeError("Không đọc được .xlsx. Cài: pip install openpyxl") from e
         out: Dict[str, pd.DataFrame] = {}
         for sh in xls.sheet_names:
             out[str(sh)] = pd.read_excel(xls, sheet_name=sh)
         return out
 
     if ext == ".xls":
-        # cần xlrd>=2.0.1
         try:
             xls = pd.ExcelFile(io.BytesIO(raw), engine="xlrd")
         except Exception as e:
-            raise RuntimeError("Không đọc được .xls. Hãy cài xlrd>=2.0.1: pip install xlrd>=2.0.1") from e
+            raise RuntimeError("Không đọc được .xls. Cài: pip install xlrd>=2.0.1") from e
         out: Dict[str, pd.DataFrame] = {}
         for sh in xls.sheet_names:
             out[str(sh)] = pd.read_excel(xls, sheet_name=sh, engine="xlrd")
         return out
 
     if ext in [".sav", ".zsav"]:
-        # FIX lỗi BytesIO: đọc qua file tạm
-        df = _read_via_tempfile(raw, ext, pd.read_spss)
+        df = _read_via_tempfile(raw, ext, pd.read_spss)  # FIX BytesIO
         return {"data": df}
 
     if ext == ".dta":
@@ -280,7 +278,7 @@ def overall_summary(df: pd.DataFrame) -> Dict[str, int]:
 
 
 # =========================
-# Assumptions: normality & homogeneity
+# Assumptions helpers
 # =========================
 def normality_pvalue(x: np.ndarray) -> float:
     x = x[~np.isnan(x)]
@@ -370,14 +368,12 @@ def suggest_single_x_test(
     if tmp.shape[0] < 3:
         return ("Không đủ dữ liệu", "Sau khi loại NA, số dòng quá ít để kiểm định.", "none")
 
-    # cat vs cat
     if yk == "cat" and xk == "cat":
         tab = pd.crosstab(tmp[y].astype(str), tmp[x].astype(str))
         if tab.shape == (2, 2) and (tab.values < 5).any():
             return ("Fisher exact (2x2)", "Bảng 2x2 có ô nhỏ → ưu tiên Fisher.", "fisher_2x2")
         return ("Chi-bình phương (Chi-square)", "X và Y đều phân loại → Chi-square.", "chisq")
 
-    # y numeric by group x categorical
     if yk == "num" and xk == "cat":
         rep = assumption_report_num_by_group(df, y_num=y, group_cat=x)
         n_levels = len(rep["levels"])
@@ -395,7 +391,6 @@ def suggest_single_x_test(
             return ("ANOVA một yếu tố", "Nhiều nhóm, đạt chuẩn & đồng nhất phương sai → ANOVA.", "anova")
         return ("Kruskal–Wallis", "Nhiều nhóm, không đạt giả định → Kruskal.", "kruskal")
 
-    # x numeric by group y categorical (swap)
     if yk == "cat" and xk == "num":
         rep = assumption_report_num_by_group(df, y_num=x, group_cat=y)
         n_levels = len(rep["levels"])
@@ -413,7 +408,6 @@ def suggest_single_x_test(
             return ("ANOVA một yếu tố", "Nhiều nhóm, đạt chuẩn & đồng nhất phương sai → ANOVA.", "anova_swapped")
         return ("Kruskal–Wallis", "Nhiều nhóm, không đạt giả định → Kruskal.", "kruskal_swapped")
 
-    # num vs num: correlation
     if yk == "num" and xk == "num":
         tmp2 = df[[y, x]].copy()
         tmp2[y] = coerce_numeric(tmp2[y])
@@ -476,7 +470,6 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
         interp = "Diễn giải: p nhỏ → gợi ý liên quan. OR diễn giải theo nhóm tham chiếu."
         return out, interp
 
-    # Numeric by groups (y numeric, x cat)
     if test_kind in ("ttest_student", "ttest_welch", "mwu", "anova", "kruskal"):
         tmp = df[[y, x]].dropna().copy()
         tmp[y] = coerce_numeric(tmp[y])
@@ -520,7 +513,6 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
             interp = f"{assump}\nDiễn giải: dùng khi không đạt giả định; nếu có ý nghĩa nên post-hoc."
             return out, interp
 
-    # Swapped: y categorical defines groups, x numeric
     if test_kind.endswith("_swapped"):
         tmp = df[[y, x]].dropna().copy()
         tmp[x] = coerce_numeric(tmp[x])
@@ -531,7 +523,6 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
 
         rep = assumption_report_num_by_group(df, y_num=x, group_cat=y)
         assump = _assumption_text(rep)
-
         base = test_kind.replace("_swapped", "")
 
         if base in ("ttest_student", "ttest_welch"):
@@ -663,9 +654,7 @@ def run_model(formula: str, data_used: pd.DataFrame, model_kind: str):
 
 def ols_table(fit) -> pd.DataFrame:
     conf = fit.conf_int()
-    out = pd.DataFrame(
-        {"Hệ số": fit.params, "CI 2.5%": conf[0], "CI 97.5%": conf[1], "p-value": fit.pvalues}
-    )
+    out = pd.DataFrame({"Hệ số": fit.params, "CI 2.5%": conf[0], "CI 97.5%": conf[1], "p-value": fit.pvalues})
     out.index.name = "Biến"
     return out.sort_values("p-value")
 
@@ -673,19 +662,14 @@ def ols_table(fit) -> pd.DataFrame:
 def logit_or_table(fit) -> pd.DataFrame:
     conf = fit.conf_int()
     out = pd.DataFrame(
-        {
-            "OR": np.exp(fit.params),
-            "CI 2.5%": np.exp(conf[0]),
-            "CI 97.5%": np.exp(conf[1]),
-            "p-value": fit.pvalues,
-        }
+        {"OR": np.exp(fit.params), "CI 2.5%": np.exp(conf[0]), "CI 97.5%": np.exp(conf[1]), "p-value": fit.pvalues}
     )
     out.index.name = "Biến"
     return out.sort_values("p-value")
 
 
 # =========================
-# Equation + detailed interpretation (OLS + Logit)
+# Equation + interpretation
 # =========================
 def format_ols_equation(fit, y_name: str) -> str:
     params = fit.params.to_dict()
@@ -800,7 +784,6 @@ if "datasets" not in st.session_state:
 if "active_name" not in st.session_state:
     st.session_state["active_name"] = None
 
-# upload multi-table pending
 if "pending_tables" not in st.session_state:
     st.session_state["pending_tables"] = None
 if "pending_fname" not in st.session_state:
@@ -808,7 +791,6 @@ if "pending_fname" not in st.session_state:
 if "pending_file_hash" not in st.session_state:
     st.session_state["pending_file_hash"] = None
 
-# dedupe
 if "hash_to_key" not in st.session_state:
     st.session_state["hash_to_key"] = {}
 if "key_to_hashes" not in st.session_state:
@@ -816,23 +798,19 @@ if "key_to_hashes" not in st.session_state:
 if "last_upload_hash" not in st.session_state:
     st.session_state["last_upload_hash"] = None
 
-# last result
 if "last_result" not in st.session_state:
     st.session_state["last_result"] = None
 if "last_run_meta" not in st.session_state:
     st.session_state["last_run_meta"] = None
 
-# stepper
 if "active_step" not in st.session_state:
     st.session_state["active_step"] = 1
 
-# persist selections per dataset
 if "selections" not in st.session_state:
-    st.session_state["selections"] = {}  # dataset_name -> dict
+    st.session_state["selections"] = {}
 if "last_active_dataset" not in st.session_state:
     st.session_state["last_active_dataset"] = None
 
-# widget keys (persist across reruns)
 if "var_search" not in st.session_state:
     st.session_state["var_search"] = ""
 
@@ -867,7 +845,6 @@ def _load_selection_for_dataset(dataset: str, cols: List[str]):
     x_force = saved.get("x_force", "Tự động")
     y_event = saved.get("y_event", None)
 
-    # Set widget states so Streamlit doesn't reset
     st.session_state["sel_y_widget"] = y
     st.session_state["sel_xs_widget"] = xs
     st.session_state["sel_y_force_widget"] = y_force
@@ -883,6 +860,23 @@ def _save_selection_for_dataset(dataset: str, y: str, xs: List[str], y_force: st
         "x_force": x_force,
         "y_event": y_event,
     }
+
+
+def _persist_current_selection_if_any():
+    dataset = st.session_state.get("active_name", None)
+    if (not dataset) or (dataset not in st.session_state.get("datasets", {})):
+        return
+
+    y = st.session_state.get("sel_y_widget", None)
+    xs = st.session_state.get("sel_xs_widget", None)
+    if y is None or xs is None:
+        return
+
+    y_force = st.session_state.get("sel_y_force_widget", "Tự động")
+    x_force = st.session_state.get("sel_x_force_widget", "Tự động")
+    y_event = st.session_state.get("sel_y_event_widget", None)
+
+    _save_selection_for_dataset(dataset, y, xs, y_force, x_force, y_event)
 
 
 # =========================
@@ -904,7 +898,6 @@ with st.sidebar:
             if st.session_state["last_upload_hash"] != file_hash:
                 st.session_state["last_upload_hash"] = file_hash
 
-                # file hash đã có -> không tạo dataset mới
                 if file_hash in st.session_state["hash_to_key"]:
                     existed_key = st.session_state["hash_to_key"][file_hash]
                     st.session_state["active_name"] = existed_key
@@ -934,7 +927,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Không đọc được file: {e}")
 
-    # multi-table chooser
     if st.session_state["pending_tables"] is not None:
         st.markdown("### Chọn sheet/object")
         tables = st.session_state["pending_tables"]
@@ -988,94 +980,79 @@ with st.sidebar:
     names_all = list(st.session_state["datasets"].keys())
     if not names_all:
         st.info("Chưa có dữ liệu. Hãy upload.")
-        st.stop()
-
-    ds_q = st.text_input("Tìm dataset", value="", placeholder="gõ tên dataset...")
-    if ds_q.strip():
-        names = [n for n in names_all if ds_q.lower() in n.lower()] or names_all
     else:
-        names = names_all
+        ds_q = st.text_input("Tìm dataset", value="", placeholder="gõ tên dataset...")
+        if ds_q.strip():
+            names = [n for n in names_all if ds_q.lower() in n.lower()] or names_all
+        else:
+            names = names_all
 
-    active = st.session_state["active_name"] or names_all[0]
-    if active not in names_all:
-        active = names_all[0]
-        st.session_state["active_name"] = active
+        active = st.session_state["active_name"] or names_all[0]
+        if active not in names_all:
+            active = names_all[0]
+            st.session_state["active_name"] = active
 
-    chosen = st.selectbox("Chọn dataset", options=names, index=names.index(active) if active in names else 0)
-    st.session_state["active_name"] = chosen
+        chosen = st.selectbox("Chọn dataset", options=names, index=names.index(active) if active in names else 0)
+        st.session_state["active_name"] = chosen
 
-    # rename
-    with st.expander("✏️ Đổi tên dataset"):
-        new_name = st.text_input("Tên mới", value=chosen)
-        if st.button("Lưu tên", use_container_width=True):
-            new_name = _safe_name(new_name)
-            if (new_name != chosen) and (new_name in st.session_state["datasets"]):
-                st.error("Tên đã tồn tại.")
-            else:
-                df_tmp = st.session_state["datasets"].pop(chosen)
-                st.session_state["datasets"][new_name] = df_tmp
+        with st.expander("✏️ Đổi tên dataset"):
+            new_name = st.text_input("Tên mới", value=chosen)
+            if st.button("Lưu tên", use_container_width=True):
+                new_name = _safe_name(new_name)
+                if (new_name != chosen) and (new_name in st.session_state["datasets"]):
+                    st.error("Tên đã tồn tại.")
+                else:
+                    df_tmp = st.session_state["datasets"].pop(chosen)
+                    st.session_state["datasets"][new_name] = df_tmp
 
-                hashes = st.session_state["key_to_hashes"].pop(chosen, set())
-                st.session_state["key_to_hashes"][new_name] = hashes
-                for h in list(hashes):
-                    if st.session_state["hash_to_key"].get(h) == chosen:
-                        st.session_state["hash_to_key"][h] = new_name
+                    hashes = st.session_state["key_to_hashes"].pop(chosen, set())
+                    st.session_state["key_to_hashes"][new_name] = hashes
+                    for h in list(hashes):
+                        if st.session_state["hash_to_key"].get(h) == chosen:
+                            st.session_state["hash_to_key"][h] = new_name
 
-                # move selections
-                if chosen in st.session_state["selections"]:
-                    st.session_state["selections"][new_name] = st.session_state["selections"].pop(chosen)
+                    if chosen in st.session_state["selections"]:
+                        st.session_state["selections"][new_name] = st.session_state["selections"].pop(chosen)
 
-                st.session_state["active_name"] = new_name
-                st.success("Đã đổi tên.")
+                    st.session_state["active_name"] = new_name
+                    st.success("Đã đổi tên.")
+                    st.rerun()
+
+        df_active = st.session_state["datasets"][st.session_state["active_name"]]
+        summ_side = overall_summary(df_active)
+        st.caption(f"rows={summ_side['Số dòng']} | biến={summ_side['Số biến']} | thiếu={summ_side['Ô thiếu (NA)']}")
+
+        c1, c2 = st.columns([1, 1], gap="small")
+        with c1:
+            if st.button("🗑️ Xoá", use_container_width=True):
+                _delete_dataset(chosen)
+                remaining = list(st.session_state["datasets"].keys())
+                st.session_state["active_name"] = remaining[0] if remaining else None
+                st.session_state["last_result"] = None
+                st.session_state["last_run_meta"] = None
+                st.session_state["active_step"] = 1
                 st.rerun()
 
-    df_active = st.session_state["datasets"][st.session_state["active_name"]]
-    summ_side = overall_summary(df_active)
-    st.caption(f"rows={summ_side['Số dòng']} | biến={summ_side['Số biến']} | thiếu={summ_side['Ô thiếu (NA)']}")
-
-    c1, c2 = st.columns([1, 1], gap="small")
-    with c1:
-        if st.button("🗑️ Xoá", use_container_width=True):
-            _delete_dataset(chosen)
-            remaining = list(st.session_state["datasets"].keys())
-            st.session_state["active_name"] = remaining[0] if remaining else None
-            st.session_state["last_result"] = None
-            st.session_state["last_run_meta"] = None
-            st.session_state["active_step"] = 1
-            st.rerun()
-
-    with c2:
-        if st.button("🧹 Xoá hết", use_container_width=True):
-            st.session_state["datasets"] = {}
-            st.session_state["active_name"] = None
-            st.session_state["pending_tables"] = None
-            st.session_state["pending_fname"] = None
-            st.session_state["pending_file_hash"] = None
-            st.session_state["hash_to_key"] = {}
-            st.session_state["key_to_hashes"] = {}
-            st.session_state["last_upload_hash"] = None
-            st.session_state["last_result"] = None
-            st.session_state["last_run_meta"] = None
-            st.session_state["active_step"] = 1
-            st.session_state["selections"] = {}
-            st.session_state["last_active_dataset"] = None
-            st.rerun()
+        with c2:
+            if st.button("🧹 Xoá hết", use_container_width=True):
+                st.session_state["datasets"] = {}
+                st.session_state["active_name"] = None
+                st.session_state["pending_tables"] = None
+                st.session_state["pending_fname"] = None
+                st.session_state["pending_file_hash"] = None
+                st.session_state["hash_to_key"] = {}
+                st.session_state["key_to_hashes"] = {}
+                st.session_state["last_upload_hash"] = None
+                st.session_state["last_result"] = None
+                st.session_state["last_run_meta"] = None
+                st.session_state["active_step"] = 1
+                st.session_state["selections"] = {}
+                st.session_state["last_active_dataset"] = None
+                st.rerun()
 
 
 # =========================
-# Main data + load selection on dataset change
-# =========================
-active_name = st.session_state["active_name"]
-df = st.session_state["datasets"][active_name]
-cols = df.columns.tolist()
-
-if st.session_state["last_active_dataset"] != active_name:
-    st.session_state["last_active_dataset"] = active_name
-    _load_selection_for_dataset(active_name, cols)
-
-
-# =========================
-# Sticky TOP: Header + Stepper (must be the first border container)
+# Sticky TOP: Header + Stepper (luôn hiện cả khi chưa có dataset)
 # =========================
 top_box = st.container(border=True)
 with top_box:
@@ -1099,6 +1076,7 @@ with top_box:
     with b1:
         t = "primary" if st.session_state["active_step"] == 1 else "secondary"
         if st.button("1) 📄 Dữ liệu", type=t, use_container_width=True):
+            _persist_current_selection_if_any()
             st.session_state["active_step"] = 1
             st.rerun()
         st.caption("Tổng quan • xem bảng • danh sách biến")
@@ -1106,6 +1084,7 @@ with top_box:
     with b2:
         t = "primary" if st.session_state["active_step"] == 2 else "secondary"
         if st.button("2) 🎯 Chọn biến", type=t, use_container_width=True):
+            _persist_current_selection_if_any()
             st.session_state["active_step"] = 2
             st.rerun()
         st.caption("Chọn Y/X • gợi ý • bấm Run")
@@ -1113,18 +1092,36 @@ with top_box:
     with b3:
         t = "primary" if st.session_state["active_step"] == 3 else "secondary"
         if st.button("3) 📌 Kết quả", type=t, use_container_width=True):
+            _persist_current_selection_if_any()
             st.session_state["active_step"] = 3
             st.rerun()
         st.caption("Bảng • biểu đồ • diễn giải")
 
 st.divider()
 
+# ===== Nếu chưa có dataset: vẫn giữ header nhưng chặn phần dưới =====
+if not st.session_state["datasets"]:
+    st.warning("Chưa có dataset. Hãy upload file ở sidebar bên trái để bắt đầu.")
+    st.stop()
+
+# =========================
+# Main data
+# =========================
+active_name = st.session_state["active_name"] or list(st.session_state["datasets"].keys())[0]
+st.session_state["active_name"] = active_name
+df = st.session_state["datasets"][active_name]
+cols = df.columns.tolist()
+
+# dataset change -> seed widget state
+if st.session_state["last_active_dataset"] != active_name:
+    st.session_state["last_active_dataset"] = active_name
+    _load_selection_for_dataset(active_name, cols)
+
 
 # =========================
 # Compute and store results
 # =========================
 def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_event: Optional[str]):
-    # 1 X -> test
     if len(xs) == 1:
         suggestion, explanation, test_kind = suggest_single_x_test(df, y, xs[0], y_forced=y_force, x_forced=x_force)
         result_df, interp = run_single_x_test(df, y, xs[0], test_kind=test_kind)
@@ -1143,7 +1140,6 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
         st.session_state["last_result"] = {"table": result_df, "interp": interp}
         return
 
-    # many X -> model
     tmp_for_suggest = df.copy()
     if y_force == "Định lượng (numeric)":
         tmp_for_suggest[y] = coerce_numeric(tmp_for_suggest[y])
@@ -1187,7 +1183,7 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
 
 
 # =========================
-# STEP 1: Data
+# STEP 1
 # =========================
 if st.session_state["active_step"] == 1:
     st.subheader("📄 Dữ liệu")
@@ -1227,10 +1223,13 @@ if st.session_state["active_step"] == 1:
 
 
 # =========================
-# STEP 2: Choose variables (persist selections)
+# STEP 2
 # =========================
 elif st.session_state["active_step"] == 2:
     st.subheader("🎯 Chọn biến")
+
+    # seed lại state khi vào Step 2 (đảm bảo không mất)
+    _load_selection_for_dataset(active_name, cols)
 
     left, right = st.columns([2.0, 1.0], gap="small")
 
@@ -1243,42 +1242,24 @@ elif st.session_state["active_step"] == 2:
         if not cols_show:
             cols_show = cols
 
-        # Y widget (persist via session_state key)
         y_current = st.session_state.get("sel_y_widget", cols_show[0])
         if y_current not in cols_show:
             y_current = cols_show[0]
 
-        y = st.selectbox(
-            "Biến phụ thuộc (Y)",
-            options=cols_show,
-            index=cols_show.index(y_current),
-            key="sel_y_widget",
-        )
+        y = st.selectbox("Biến phụ thuộc (Y)", options=cols_show, index=cols_show.index(y_current), key="sel_y_widget")
 
-        # X options exclude Y
         x_options = [c for c in cols_show if c != y]
         xs_prev = st.session_state.get("sel_xs_widget", [])
         xs_prev = [x for x in xs_prev if x in x_options]
 
-        xs = st.multiselect(
-            "Biến độc lập (X)",
-            options=x_options,
-            default=xs_prev,
-            key="sel_xs_widget",
-        )
+        xs = st.multiselect("Biến độc lập (X)", options=x_options, default=xs_prev, key="sel_xs_widget")
 
         force_opts = ["Tự động", "Định lượng (numeric)", "Phân loại (categorical)"]
 
         y_force_prev = st.session_state.get("sel_y_force_widget", "Tự động")
         if y_force_prev not in force_opts:
             y_force_prev = "Tự động"
-
-        y_force = st.selectbox(
-            "Kiểu Y",
-            options=force_opts,
-            index=force_opts.index(y_force_prev),
-            key="sel_y_force_widget",
-        )
+        y_force = st.selectbox("Kiểu Y", options=force_opts, index=force_opts.index(y_force_prev), key="sel_y_force_widget")
 
         x_force = "Tự động"
         if len(xs) == 1:
@@ -1286,16 +1267,12 @@ elif st.session_state["active_step"] == 2:
             if x_force_prev not in force_opts:
                 x_force_prev = "Tự động"
             x_force = st.selectbox(
-                "Kiểu X (chỉ khi 1 X)",
-                options=force_opts,
-                index=force_opts.index(x_force_prev),
-                key="sel_x_force_widget",
+                "Kiểu X (chỉ khi 1 X)", options=force_opts, index=force_opts.index(x_force_prev), key="sel_x_force_widget"
             )
         else:
             st.session_state["sel_x_force_widget"] = "Tự động"
             x_force = "Tự động"
 
-        # y_event (for logistic)
         y_event = None
         if var_kind(df[y], y_force) == "cat":
             levels = sorted(df[y].dropna().astype(str).unique().tolist())
@@ -1304,18 +1281,13 @@ elif st.session_state["active_step"] == 2:
                 idx = 1
                 if prev_ev in levels:
                     idx = levels.index(prev_ev)
-                y_event = st.selectbox(
-                    "Sự kiện (Y=1) cho logistic",
-                    options=levels,
-                    index=idx,
-                    key="sel_y_event_widget",
-                )
+                y_event = st.selectbox("Sự kiện (Y=1) cho logistic", options=levels, index=idx, key="sel_y_event_widget")
             else:
                 st.session_state["sel_y_event_widget"] = None
         else:
             st.session_state["sel_y_event_widget"] = None
 
-        # Save per dataset
+        # SAVE ngay khi đang ở Step 2 (để không mất khi bấm sang bước khác)
         _save_selection_for_dataset(active_name, y, xs, y_force, x_force, y_event)
 
         st.markdown("### ✅ Gợi ý")
@@ -1349,6 +1321,9 @@ elif st.session_state["active_step"] == 2:
         st.markdown("---")
         if st.button("▶️ Run", type="primary", use_container_width=True, disabled=(len(xs_show) == 0)):
             try:
+                # persist lần nữa cho chắc
+                _persist_current_selection_if_any()
+
                 _compute_and_store(
                     y=st.session_state.get("sel_y_widget"),
                     xs=st.session_state.get("sel_xs_widget", []),
@@ -1363,7 +1338,7 @@ elif st.session_state["active_step"] == 2:
 
 
 # =========================
-# STEP 3: Results
+# STEP 3
 # =========================
 else:
     st.subheader("📌 Kết quả")
@@ -1442,10 +1417,7 @@ else:
                     st.write("\n".join(explain_logit_effects(fit, alpha=0.05)))
 
                     st.markdown("### 📌 Ghi chú")
-                    st.write(
-                        "- OR > 1: odds tăng; OR < 1: odds giảm.\n"
-                        "- p<0.05 và CI95% không chứa 1: thường có ý nghĩa."
-                    )
+                    st.write("- OR > 1: odds tăng; OR < 1: odds giảm.\n- p<0.05 và CI95% không chứa 1: thường có ý nghĩa.")
 
                 else:
                     st.markdown("### 📄 MNLogit Summary")
@@ -1510,7 +1482,6 @@ else:
                             )
                         st.plotly_chart(fig, use_container_width=True)
 
-                        # predicted vs actual
                         pred = res["fit"].fittedvalues
                         tmp_plot = pd.DataFrame({"Thực tế": data_used[y], "Dự đoán": pred})
                         fig2 = px.scatter(tmp_plot, x="Thực tế", y="Dự đoán", title="Dự đoán vs Thực tế", height=320)
@@ -1521,7 +1492,6 @@ else:
                         fig = px.histogram(p, nbins=22, title="Xác suất dự đoán (p)", height=320)
                         st.plotly_chart(fig, use_container_width=True)
 
-                        # confusion at 0.5
                         y_true = data_used["_y01_"].astype(int)
                         y_pred = (p >= 0.5).astype(int)
                         tp = int(((y_true == 1) & (y_pred == 1)).sum())
