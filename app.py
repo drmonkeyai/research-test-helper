@@ -25,28 +25,54 @@ APP_TITLE = "Hỗ trợ nghiên cứu cho bác sĩ gia đình"
 
 
 # =========================
-# UI CSS: big step buttons
+# Compact FullHD CSS + Big buttons
 # =========================
 st.markdown(
     """
     <style>
-    /* Làm nút to hơn */
+    .block-container {
+        padding-top: 0.8rem !important;
+        padding-bottom: 0.8rem !important;
+        padding-left: 1.2rem !important;
+        padding-right: 1.2rem !important;
+        max-width: 1400px !important;
+    }
+    h1 { font-size: 2.2rem !important; margin-bottom: 0.25rem !important; }
+    h2 { font-size: 1.5rem !important; margin-top: 0.6rem !important; }
+    h3 { font-size: 1.2rem !important; margin-top: 0.6rem !important; }
+    p, li, label, div { font-size: 0.98rem; }
+    hr { margin: 0.55rem 0 !important; }
+
     div.stButton > button {
         width: 100%;
-        padding: 16px 14px !important;
-        border-radius: 14px !important;
-        font-size: 18px !important;
-        font-weight: 700 !important;
-        border: 1px solid rgba(0,0,0,0.12) !important;
-        box-shadow: 0 1px 8px rgba(0,0,0,0.06) !important;
+        padding: 10px 12px !important;
+        border-radius: 12px !important;
+        font-size: 16px !important;
+        font-weight: 750 !important;
+        border: 1px solid rgba(0,0,0,0.10) !important;
+        box-shadow: 0 1px 6px rgba(0,0,0,0.06) !important;
     }
-    /* Caption nhỏ dưới nút */
     .step-caption {
         color: #6b7280;
-        font-size: 13px;
+        font-size: 12px;
         margin-top: -6px;
-        margin-bottom: 4px;
-        line-height: 1.25rem;
+        margin-bottom: 2px;
+        line-height: 1.05rem;
+    }
+
+    .stSelectbox, .stMultiSelect, .stTextInput, .stFileUploader {
+        margin-bottom: 0.35rem !important;
+    }
+
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 0.7rem !important;
+        padding-left: 0.9rem !important;
+        padding-right: 0.9rem !important;
+    }
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] div {
+        font-size: 0.92rem !important;
     }
     </style>
     """,
@@ -653,10 +679,184 @@ def logit_or_table(fit) -> pd.DataFrame:
 
 
 # =========================
+# NEW: Equation + detailed interpretation
+# =========================
+def pretty_term_name(term: str) -> str:
+    if term == "Intercept":
+        return "Hằng số (Intercept)"
+
+    m = re.match(r"C\(Q\('(.+)'\)\)\[T\.(.+)\]", term)
+    if m:
+        var = m.group(1)
+        lv = m.group(2)
+        return f"{var} = {lv} (so với nhóm tham chiếu)"
+
+    m2 = re.match(r"Q\('(.+)'\)", term)
+    if m2:
+        return m2.group(1)
+
+    return term
+
+
+def format_ols_equation(fit, y_name: str) -> str:
+    params = fit.params.to_dict()
+    parts = []
+    b0 = params.get("Intercept", 0.0)
+    parts.append(f"{b0:.4f}")
+
+    for term, b in params.items():
+        if term == "Intercept":
+            continue
+
+        m_num = re.match(r"Q\('(.+)'\)", term)
+        if m_num:
+            var = m_num.group(1)
+            parts.append(f"{b:+.4f}*{var}")
+            continue
+
+        m_cat = re.match(r"C\(Q\('(.+)'\)\)\[T\.(.+)\]", term)
+        if m_cat:
+            var = m_cat.group(1)
+            lv = m_cat.group(2)
+            parts.append(f"{b:+.4f}*I({var}={lv})")
+            continue
+
+        parts.append(f"{b:+.4f}*({term})")
+
+    return f"**Phương trình (OLS):**  Ŷ({y_name}) = " + " ".join(parts)
+
+
+def explain_ols_effects(fit, y_name: str, alpha: float = 0.05) -> List[str]:
+    conf = fit.conf_int()
+    lines: List[str] = []
+
+    for term in fit.params.index:
+        if term == "Intercept":
+            continue
+
+        b = float(fit.params[term])
+        p = float(fit.pvalues[term])
+        lo = float(conf.loc[term, 0])
+        hi = float(conf.loc[term, 1])
+
+        sig = "có ý nghĩa thống kê" if p < alpha else "chưa đủ ý nghĩa thống kê"
+
+        # Numeric
+        m_num = re.match(r"Q\('(.+)'\)", term)
+        if m_num:
+            var = m_num.group(1)
+            direction = "tăng" if b > 0 else "giảm"
+            lines.append(
+                f"- **{var}**: khi {var} **tăng 1 đơn vị**, dự kiến **{y_name} {direction} {abs(b):.4f} đơn vị** "
+                f"(giữ các biến khác không đổi). **p={p:.4g}** → {sig}. CI95%: [{lo:.4f}; {hi:.4f}]."
+            )
+            continue
+
+        # Categorical
+        m_cat = re.match(r"C\(Q\('(.+)'\)\)\[T\.(.+)\]", term)
+        if m_cat:
+            var = m_cat.group(1)
+            lv = m_cat.group(2)
+            direction = "cao hơn" if b > 0 else "thấp hơn"
+            lines.append(
+                f"- **{var}={lv}** (so với nhóm tham chiếu): dự kiến **{y_name} {direction} {abs(b):.4f} đơn vị** "
+                f"(giữ các biến khác không đổi). **p={p:.4g}** → {sig}. CI95%: [{lo:.4f}; {hi:.4f}]."
+            )
+            continue
+
+        # Fallback
+        name = pretty_term_name(term)
+        lines.append(f"- **{name}**: hệ số={b:.4f}. p={p:.4g} ({sig}). CI95%: [{lo:.4f}; {hi:.4f}].")
+
+    return lines or ["- Không có biến giải thích (chỉ có intercept)."]
+
+
+def format_logit_equation(fit, y_name: str) -> str:
+    params = fit.params.to_dict()
+    parts = []
+    b0 = params.get("Intercept", 0.0)
+    parts.append(f"{b0:.4f}")
+
+    for term, b in params.items():
+        if term == "Intercept":
+            continue
+
+        m_num = re.match(r"Q\('(.+)'\)", term)
+        if m_num:
+            var = m_num.group(1)
+            parts.append(f"{b:+.4f}*{var}")
+            continue
+
+        m_cat = re.match(r"C\(Q\('(.+)'\)\)\[T\.(.+)\]", term)
+        if m_cat:
+            var = m_cat.group(1)
+            lv = m_cat.group(2)
+            parts.append(f"{b:+.4f}*I({var}={lv})")
+            continue
+
+        parts.append(f"{b:+.4f}*({term})")
+
+    return f"**Phương trình (Logistic):**  logit(p) = ln(p/(1-p)) = " + " ".join(parts) + f"  *(p = P({y_name}=1))*"
+
+
+def explain_logit_effects(fit, y_name: str, alpha: float = 0.05) -> List[str]:
+    conf = fit.conf_int()
+    lines: List[str] = []
+
+    for term in fit.params.index:
+        if term == "Intercept":
+            continue
+
+        b = float(fit.params[term])
+        p = float(fit.pvalues[term])
+        lo = float(conf.loc[term, 0])
+        hi = float(conf.loc[term, 1])
+
+        OR = float(np.exp(b))
+        OR_lo = float(np.exp(lo))
+        OR_hi = float(np.exp(hi))
+
+        sig = "có ý nghĩa thống kê" if p < alpha else "chưa đủ ý nghĩa thống kê"
+
+        m_num = re.match(r"Q\('(.+)'\)", term)
+        if m_num:
+            var = m_num.group(1)
+            direction = "tăng" if OR > 1 else "giảm"
+            ratio = OR if OR > 1 else (1 / OR if OR != 0 else float("nan"))
+            if OR > 1:
+                msg = f"odds **tăng ~{ratio:.3f} lần**"
+            else:
+                msg = f"odds **giảm ~{ratio:.3f} lần**"
+            lines.append(
+                f"- **{var}**: khi {var} **tăng 1 đơn vị**, {msg} (giữ biến khác không đổi). "
+                f"**OR={OR:.3f}**, CI95% OR=[{OR_lo:.3f}; {OR_hi:.3f}], **p={p:.4g}** → {sig}."
+            )
+            continue
+
+        m_cat = re.match(r"C\(Q\('(.+)'\)\)\[T\.(.+)\]", term)
+        if m_cat:
+            var = m_cat.group(1)
+            lv = m_cat.group(2)
+            direction = "cao hơn" if OR > 1 else "thấp hơn"
+            lines.append(
+                f"- **{var}={lv}** (so với nhóm tham chiếu): odds xảy ra sự kiện **{direction}**. "
+                f"**OR={OR:.3f}**, CI95% OR=[{OR_lo:.3f}; {OR_hi:.3f}], **p={p:.4g}** → {sig}."
+            )
+            continue
+
+        name = pretty_term_name(term)
+        lines.append(
+            f"- **{name}**: OR={OR:.3f}, CI95% OR=[{OR_lo:.3f}; {OR_hi:.3f}], p={p:.4g} ({sig})."
+        )
+
+    return lines or ["- Không có biến giải thích (chỉ có intercept)."]
+
+
+# =========================
 # Session state: datasets + dedupe + stepper
 # =========================
 if "datasets" not in st.session_state:
-    st.session_state["datasets"] = {}  # key -> df
+    st.session_state["datasets"] = {}
 if "active_name" not in st.session_state:
     st.session_state["active_name"] = None
 
@@ -668,9 +868,9 @@ if "pending_file_hash" not in st.session_state:
     st.session_state["pending_file_hash"] = None
 
 if "hash_to_key" not in st.session_state:
-    st.session_state["hash_to_key"] = {}  # hash -> dataset key
+    st.session_state["hash_to_key"] = {}
 if "key_to_hashes" not in st.session_state:
-    st.session_state["key_to_hashes"] = {}  # dataset key -> set(hashes)
+    st.session_state["key_to_hashes"] = {}
 if "last_upload_hash" not in st.session_state:
     st.session_state["last_upload_hash"] = None
 
@@ -680,7 +880,7 @@ if "last_run_meta" not in st.session_state:
     st.session_state["last_run_meta"] = None
 
 if "active_step" not in st.session_state:
-    st.session_state["active_step"] = 1  # 1=Data,2=Choose,3=Results
+    st.session_state["active_step"] = 1
 
 
 def _register_dataset(key: str, df: pd.DataFrame, hashes: List[str]):
@@ -705,9 +905,9 @@ def _delete_dataset(key: str):
 # =========================
 st.markdown(
     f"""
-    <div style="padding: 0.25rem 0 0.5rem 0;">
-      <h1 style="margin:0;">{APP_TITLE}</h1>
-      <div style="color:#6b7280;">
+    <div style="padding: 0.1rem 0 0.2rem 0;">
+      <h1 style="margin:0; line-height: 2.4rem;">{APP_TITLE}</h1>
+      <div style="color:#6b7280; font-size:0.95rem; margin-top:0.2rem;">
         Upload dữ liệu → chọn biến → kiểm định (1 X) hoặc mô hình (nhiều X) → kết quả + giải thích
       </div>
     </div>
@@ -717,7 +917,7 @@ st.markdown(
 
 
 # =========================
-# Sidebar: Upload & Dataset manager
+# Sidebar
 # =========================
 with st.sidebar:
     st.markdown("## 🧪 Dữ liệu")
@@ -733,11 +933,9 @@ with st.sidebar:
             raw = up.getvalue()
             file_hash = _file_sha256(raw)
 
-            # tránh rerun add lại
             if st.session_state["last_upload_hash"] != file_hash:
                 st.session_state["last_upload_hash"] = file_hash
 
-                # file đã có
                 if file_hash in st.session_state["hash_to_key"]:
                     existed_key = st.session_state["hash_to_key"][file_hash]
                     st.session_state["active_name"] = existed_key
@@ -745,7 +943,6 @@ with st.sidebar:
                 else:
                     tables = read_file_safely(up)
 
-                    # nhiều sheet/object
                     if len(tables) > 1:
                         st.session_state["pending_tables"] = tables
                         st.session_state["pending_fname"] = up.name
@@ -768,7 +965,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Không đọc được file: {e}")
 
-    # pending sheet/object
     if st.session_state["pending_tables"] is not None:
         st.markdown("### Chọn sheet/object")
         tables = st.session_state["pending_tables"]
@@ -890,16 +1086,16 @@ with st.sidebar:
 
 
 # =========================
-# Data in main
+# Main data
 # =========================
 df = st.session_state["datasets"][st.session_state["active_name"]]
 cols = df.columns.tolist()
 
 
 # =========================
-# Stepper Buttons (BIG)
+# Stepper buttons
 # =========================
-st.markdown("### 🧭 Các bước thao tác")
+st.markdown("## 🧭 Các bước thao tác")
 
 c1, c2, c3 = st.columns(3, gap="medium")
 
@@ -993,7 +1189,7 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
 
 
 # =========================
-# STEP 1: Data view
+# STEP 1: Data
 # =========================
 if st.session_state["active_step"] == 1:
     st.subheader("📄 Dữ liệu")
@@ -1028,7 +1224,6 @@ if st.session_state["active_step"] == 1:
         var_df = var_df[var_df["Đặc tính biến"].str.contains("Phân loại", na=False)]
 
     st.dataframe(var_df, use_container_width=True, height=420)
-
     st.info("👉 Bấm **2) Chọn biến** để chọn Y/X và chạy kiểm định/mô hình.")
 
 
@@ -1088,19 +1283,13 @@ elif st.session_state["active_step"] == 2:
     with right:
         st.markdown("#### Tóm tắt lựa chọn")
         st.write(f"**Dataset:** {st.session_state['active_name']}")
-        st.write(f"**Y:** {y} ({'định lượng' if var_kind(df[y], y_force)=='num' else 'phân loại'})")
+        st.write(f"**Biến phụ thuộc (Y):** {y} ({'định lượng' if var_kind(df[y], y_force)=='num' else 'phân loại'})")
 
         if len(xs) == 0:
-            st.write("**X:** -")
+            st.write("**Biến độc lập (X):** -")
             st.button("▶️ Run", type="primary", use_container_width=True, disabled=True)
         else:
-            if len(xs) == 1:
-                x1 = xs[0]
-                xk = var_kind(df[x1], x_force)
-                st.write(f"**X:** {x1} ({'định lượng' if xk=='num' else 'phân loại'})")
-            else:
-                st.write(f"**X:** {len(xs)} biến")
-
+            st.write(f"**Biến độc lập (X):** {', '.join(xs)}")
             st.markdown("---")
             if st.button("▶️ Run", type="primary", use_container_width=True):
                 try:
@@ -1123,44 +1312,93 @@ else:
     if not meta or not res:
         st.info("Chưa có kết quả. Bấm **2) Chọn biến** → chọn Y/X → bấm **Run**.")
     else:
+        # ----- Summary card -----
         st.markdown("#### Tóm tắt lần chạy")
-        st.write(f"- **Dataset:** {meta.get('dataset')}")
-        st.write(f"- **Y:** {meta.get('y')}")
-        st.write(f"- **X:** {', '.join(meta.get('xs', []))}")
-        st.write(f"- **Gợi ý:** {meta.get('suggestion')}")
+        y_name = meta.get("y", "-")
+        x_list = meta.get("xs", [])
+        x_text = ", ".join(x_list) if x_list else "-"
+
+        st.markdown(
+            f"""
+            <div style="border:1px solid rgba(0,0,0,0.08); border-radius:12px; padding:12px;">
+              <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                <div style="min-width:220px;">
+                  <div style="color:#6b7280; font-size:12px;">Dataset</div>
+                  <div style="font-size:16px; font-weight:800;">{meta.get('dataset','-')}</div>
+                </div>
+                <div style="min-width:220px;">
+                  <div style="color:#6b7280; font-size:12px;">Biến phụ thuộc (Y)</div>
+                  <div style="font-size:16px; font-weight:800;">{y_name}</div>
+                </div>
+                <div style="min-width:320px; flex:1;">
+                  <div style="color:#6b7280; font-size:12px;">Biến độc lập (X)</div>
+                  <div style="font-size:16px; font-weight:800;">{x_text}</div>
+                </div>
+              </div>
+              <div style="margin-top:10px; color:#6b7280; font-size:12px;">Gợi ý</div>
+              <div style="font-size:16px; font-weight:800;">{meta.get('suggestion','-')}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.divider()
 
         left, right = st.columns([1.4, 1.0], gap="large")
 
+        # ----- LEFT: tables + detailed explanation -----
         with left:
             if meta["mode"] == "test":
                 st.markdown("### 📊 Kết quả kiểm định")
                 st.dataframe(res["table"], use_container_width=True)
                 st.markdown("### 🔎 Diễn giải")
                 st.write(res["interp"])
+
             else:
-                st.caption(meta.get("note", ""))
                 kind = res["kind"]
-                if kind in ("ols", "logit") and res["table"] is not None:
+                fit = res["fit"]
+                table = res["table"]
+                st.caption(meta.get("note", ""))
+
+                if kind in ("ols", "logit") and table is not None:
                     st.markdown("### 📊 Bảng kết quả mô hình")
-                    st.dataframe(res["table"], use_container_width=True)
-                    st.markdown("### 🔎 Diễn giải")
+                    st.dataframe(table, use_container_width=True)
+
+                    # === NEW: equation under table + detailed explanation ===
                     if kind == "ols":
+                        st.markdown("### 🧮 Phương trình hồi quy")
+                        st.write(format_ols_equation(fit, y_name))
+
+                        st.markdown("### 🔎 Diễn giải chi tiết (OLS)")
+                        lines = explain_ols_effects(fit, y_name, alpha=0.05)
+                        st.write("\n".join(lines))
+
+                        st.markdown("### 📌 Ghi chú")
                         st.write(
-                            "- Hệ số > 0: Y tăng khi X tăng (giữ các biến khác).\n"
-                            "- p-value < 0.05: thường có ý nghĩa.\n"
-                            "- CI 95% không chứa 0: thường có ý nghĩa."
+                            "- Các diễn giải là **hiệu chỉnh theo các biến còn lại** (adjusted).\n"
+                            "- p<0.05 và CI95% không chứa 0 → thường coi là có ý nghĩa.\n"
+                            "- Đơn vị thay đổi phụ thuộc đơn vị đo của biến trong dữ liệu."
                         )
-                    else:
+
+                    else:  # logit
+                        st.markdown("### 🧮 Phương trình hồi quy")
+                        st.write(format_logit_equation(fit, y_name))
+
+                        st.markdown("### 🔎 Diễn giải chi tiết (Logistic)")
+                        lines = explain_logit_effects(fit, y_name, alpha=0.05)
+                        st.write("\n".join(lines))
+
+                        st.markdown("### 📌 Ghi chú")
                         st.write(
-                            "- OR > 1: tăng odds sự kiện.\n"
-                            "- OR < 1: giảm odds.\n"
-                            "- CI 95% không chứa 1 và p<0.05: thường có ý nghĩa."
+                            "- Logistic diễn giải theo **odds** (không phải xác suất trực tiếp).\n"
+                            "- OR>1: odds tăng; OR<1: odds giảm.\n"
+                            "- p<0.05 và CI95% của OR không chứa 1 → thường coi là có ý nghĩa."
                         )
+
                 else:
                     st.markdown("### 📄 MNLogit Summary")
-                    st.write(res["fit"].summary())
+                    st.write(fit.summary())
 
+        # ----- RIGHT: plots -----
         with right:
             st.markdown("### 📈 Biểu đồ minh hoạ")
             try:
