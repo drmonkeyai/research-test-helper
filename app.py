@@ -1,7 +1,7 @@
 import io
 import re
-import tempfile
 import hashlib
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -26,100 +26,89 @@ APP_TITLE = "Hỗ trợ nghiên cứu cho bác sĩ gia đình"
 
 
 # =========================
-# UI CSS (FullHD compact + FIX overlay + Sticky header)
+# Compact FullHD + Sticky header + Fix bị che
 # =========================
 st.markdown(
     """
-    <style>
-    :root { --app-top-safe: 64px; } /* nếu vẫn che, tăng 72px */
+<style>
+:root { --app-top-safe: 64px; } /* nếu còn bị che, tăng 72px */
 
-    .block-container{
-        padding-top: calc(var(--app-top-safe) + 0.70rem) !important;
-        padding-bottom: 0.60rem !important;
-        padding-left: 0.90rem !important;
-        padding-right: 0.90rem !important;
-        max-width: 1600px !important;  /* Full HD */
-    }
+.block-container{
+  padding-top: calc(var(--app-top-safe) + 0.75rem) !important;
+  padding-bottom: 0.60rem !important;
+  padding-left: 0.90rem !important;
+  padding-right: 0.90rem !important;
+  max-width: 1600px !important;
+}
 
-    h1{ font-size: 2.05rem !important; font-weight: 900 !important; margin:0.05rem 0 0.15rem 0 !important; }
-    h2{ font-size: 1.25rem !important; margin:0.35rem 0 0.20rem 0 !important; }
-    h3{ font-size: 1.05rem !important; margin:0.30rem 0 0.18rem 0 !important; }
-    p, li, label, div{ font-size: 0.95rem; }
+h1{ font-size: 2.05rem !important; font-weight: 900 !important; margin:0.05rem 0 0.15rem 0 !important; }
+h2{ font-size: 1.25rem !important; margin:0.35rem 0 0.20rem 0 !important; }
+h3{ font-size: 1.05rem !important; margin:0.30rem 0 0.18rem 0 !important; }
 
-    div[data-testid="stVerticalBlock"] { gap: 0.26rem; }
-    .stMarkdown { margin-bottom: 0.08rem !important; }
-    hr { margin: 0.40rem 0 !important; }
+div[data-testid="stVerticalBlock"] { gap: 0.28rem; }
+.stMarkdown { margin-bottom: 0.08rem !important; }
+hr { margin: 0.40rem 0 !important; }
 
-    /* Buttons compact */
-    div.stButton > button{
-        width: 100%;
-        padding: 8px 10px !important;
-        border-radius: 14px !important;
-        font-size: 14px !important;
-        font-weight: 800 !important;
-        border: 1px solid rgba(0,0,0,0.10) !important;
-        box-shadow: 0 1px 5px rgba(0,0,0,0.06) !important;
-    }
+div.stButton > button{
+  width:100%;
+  padding: 8px 10px !important;
+  border-radius: 14px !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  border: 1px solid rgba(0,0,0,0.10) !important;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.06) !important;
+}
 
-    /* Sidebar compact */
-    section[data-testid="stSidebar"] .block-container{
-        padding-top: 0.55rem !important;
-        padding-left: 0.75rem !important;
-        padding-right: 0.75rem !important;
-    }
-    section[data-testid="stSidebar"] p,
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] div{
-        font-size: 0.90rem !important;
-    }
+/* Sidebar compact */
+section[data-testid="stSidebar"] .block-container{
+  padding-top: 0.55rem !important;
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
+}
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] div{
+  font-size: 0.90rem !important;
+}
 
-    /* Sticky: container(border=True) đầu tiên (header + steps) */
-    div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type{
-        position: sticky;
-        top: var(--app-top-safe);
-        z-index: 999;
-        background: rgba(255,255,255,0.96);
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(0,0,0,0.10);
-        border-radius: 18px;
-        box-shadow: 0 10px 28px rgba(0,0,0,0.12);
-    }
-    div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type > div{
-        padding: 10px 12px !important;
-    }
-    div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type .subline{
-        color:#6b7280;
-        font-size:0.90rem;
-        margin-top:0.05rem;
-    }
-    div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type [data-testid="stCaptionContainer"]{
-        font-size: 0.78rem !important;
-        margin-top: -0.22rem !important;
-        line-height: 1.05rem !important;
-    }
-    </style>
-    """,
+/* Sticky header: border container đầu tiên của app */
+div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type{
+  position: sticky;
+  top: var(--app-top-safe);
+  z-index: 999;
+  background: rgba(255,255,255,0.96);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0,0,0,0.10);
+  border-radius: 18px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.12);
+}
+div[data-testid="stVerticalBlockBorderWrapper"]:first-of-type > div{
+  padding: 10px 12px !important;
+}
+</style>
+""",
     unsafe_allow_html=True,
 )
 
 
 # =========================
-# Helpers: hashing + safe name
+# Helpers
 # =========================
 def _safe_name(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]+", "_", str(name).strip())[:80] or "file"
 
 
-def _file_sha256(raw: bytes) -> str:
+def _sha256_bytes(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _df_sha256(df: pd.DataFrame) -> str:
+def _sha256_df(df: pd.DataFrame) -> str:
     h = pd.util.hash_pandas_object(df, index=True).values.tobytes()
     return hashlib.sha256(h).hexdigest()
 
 
 def _read_via_tempfile(raw: bytes, suffix: str, reader_fn):
+    """Some pandas readers require a file path (SPSS/Stata/RDS)."""
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -135,7 +124,7 @@ def _read_via_tempfile(raw: bytes, suffix: str, reader_fn):
 
 
 # =========================
-# Read files safely (CSV/XLSX/XLS/SAV/ZsAV/DTA/RDS)
+# Read files
 # =========================
 def read_csv_safely(uploaded_file) -> pd.DataFrame:
     raw = uploaded_file.getvalue()
@@ -150,6 +139,14 @@ def read_csv_safely(uploaded_file) -> pd.DataFrame:
 
 
 def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
+    """
+    Return dict[name->df]
+    - CSV: {"data": df}
+    - XLSX/XLS: {sheet1: df1, sheet2: df2, ...}
+    - SAV/ZsAV: {"data": df}
+    - DTA: {"data": df}
+    - RDS: {object_name: df, ...}
+    """
     name = uploaded_file.name
     ext = Path(name).suffix.lower()
     raw = uploaded_file.getvalue()
@@ -168,6 +165,7 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
         return out
 
     if ext == ".xls":
+        # xlrd >= 2.0.1 chỉ hỗ trợ xls
         try:
             xls = pd.ExcelFile(io.BytesIO(raw), engine="xlrd")
         except Exception as e:
@@ -178,7 +176,7 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
         return out
 
     if ext in [".sav", ".zsav"]:
-        df = _read_via_tempfile(raw, ext, pd.read_spss)  # FIX BytesIO
+        df = _read_via_tempfile(raw, ext, pd.read_spss)
         return {"data": df}
 
     if ext == ".dta":
@@ -191,7 +189,7 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
         except Exception as e:
             raise RuntimeError("Thiếu pyreadr để đọc .rds. Cài: pip install pyreadr") from e
 
-        def _read_rds(path: str):
+        def _read_rds(path: str) -> Dict[str, pd.DataFrame]:
             res = pyreadr.read_r(path)
             out: Dict[str, pd.DataFrame] = {}
             for k, v in res.items():
@@ -201,14 +199,14 @@ def read_file_safely(uploaded_file) -> Dict[str, pd.DataFrame]:
 
         out = _read_via_tempfile(raw, ".rds", _read_rds)
         if not out:
-            raise RuntimeError("File .rds không chứa DataFrame (hoặc object không hỗ trợ).")
+            raise RuntimeError("File .rds không có DataFrame (hoặc object không hỗ trợ).")
         return out
 
-    raise RuntimeError(f"Định dạng {ext} chưa được hỗ trợ.")
+    raise RuntimeError(f"Định dạng {ext} chưa hỗ trợ.")
 
 
 # =========================
-# Type detection
+# Type helpers
 # =========================
 def is_categorical(s: pd.Series) -> bool:
     if pd.api.types.is_bool_dtype(s) or pd.api.types.is_object_dtype(s) or pd.api.types.is_categorical_dtype(s):
@@ -233,7 +231,7 @@ def var_kind(s: pd.Series, forced: str = "Tự động") -> str:
 
 
 # =========================
-# Summaries
+# Summary
 # =========================
 def summarize_variable(df: pd.DataFrame, col: str) -> Dict[str, str]:
     s = df[col]
@@ -278,7 +276,7 @@ def overall_summary(df: pd.DataFrame) -> Dict[str, int]:
 
 
 # =========================
-# Assumptions helpers
+# Assumptions for tests
 # =========================
 def normality_pvalue(x: np.ndarray) -> float:
     x = x[~np.isnan(x)]
@@ -352,7 +350,7 @@ def _assumption_text(rep: dict) -> str:
 
 
 # =========================
-# Single-X: suggest + run
+# Single-X suggest + run
 # =========================
 def suggest_single_x_test(
     df: pd.DataFrame,
@@ -581,7 +579,7 @@ def run_single_x_test(df: pd.DataFrame, y: str, x: str, test_kind: str) -> Tuple
 
 
 # =========================
-# Model: suggest + build + run
+# Model suggest + build + run
 # =========================
 def suggest_model(df: pd.DataFrame, y: str, xs: List[str]) -> Tuple[str, str]:
     y_s = df[y]
@@ -642,7 +640,6 @@ def build_formula(
 
 def run_model(formula: str, data_used: pd.DataFrame, model_kind: str):
     kind, note = model_kind.split("||", 1)
-
     if kind == "ols":
         return smf.ols(formula=formula, data=data_used).fit(), note
     if kind == "logit":
@@ -713,7 +710,7 @@ def explain_ols_effects(fit, y_name: str, alpha: float = 0.05) -> List[str]:
             var = m_num.group(1)
             direction = "tăng" if b > 0 else "giảm"
             lines.append(
-                f"- **{var}**: tăng 1 đơn vị → **{y_name} {direction} {abs(b):.4f} đơn vị** (đã hiệu chỉnh). "
+                f"- **{var}**: tăng 1 đơn vị → **{y_name} {direction} {abs(b):.4f}** (giữ các biến khác). "
                 f"p={p:.4g}, CI95%=[{lo:.4f}; {hi:.4f}] → {sig}."
             )
             continue
@@ -724,7 +721,7 @@ def explain_ols_effects(fit, y_name: str, alpha: float = 0.05) -> List[str]:
             lv = m_cat.group(2)
             direction = "cao hơn" if b > 0 else "thấp hơn"
             lines.append(
-                f"- **{var}={lv}** (so với nhóm tham chiếu): **{y_name} {direction} {abs(b):.4f} đơn vị** (đã hiệu chỉnh). "
+                f"- **{var}={lv}** (so với nhóm tham chiếu): **{y_name} {direction} {abs(b):.4f}**. "
                 f"p={p:.4g}, CI95%=[{lo:.4f}; {hi:.4f}] → {sig}."
             )
             continue
@@ -770,9 +767,7 @@ def explain_logit_effects(fit, alpha: float = 0.05) -> List[str]:
             )
             continue
 
-        lines.append(
-            f"- **{term}**: OR={orv:.3f}, p={p:.4g}, CI95% OR=[{or_lo:.3f}; {or_hi:.3f}] → {sig}."
-        )
+        lines.append(f"- **{term}**: OR={orv:.3f}, p={p:.4g}, CI95% OR=[{or_lo:.3f}; {or_hi:.3f}] → {sig}.")
     return lines or ["- Không có biến giải thích (chỉ intercept)."]
 
 
@@ -780,10 +775,19 @@ def explain_logit_effects(fit, alpha: float = 0.05) -> List[str]:
 # Session state
 # =========================
 if "datasets" not in st.session_state:
-    st.session_state["datasets"] = {}
+    st.session_state["datasets"] = {}  # key->df
 if "active_name" not in st.session_state:
     st.session_state["active_name"] = None
 
+# Prevent duplicate imports
+if "hash_to_key" not in st.session_state:
+    st.session_state["hash_to_key"] = {}  # hash->dataset_key
+if "key_to_hashes" not in st.session_state:
+    st.session_state["key_to_hashes"] = {}  # dataset_key->set(hash)
+if "last_upload_hash" not in st.session_state:
+    st.session_state["last_upload_hash"] = None
+
+# Multi-sheet pending
 if "pending_tables" not in st.session_state:
     st.session_state["pending_tables"] = None
 if "pending_fname" not in st.session_state:
@@ -791,26 +795,25 @@ if "pending_fname" not in st.session_state:
 if "pending_file_hash" not in st.session_state:
     st.session_state["pending_file_hash"] = None
 
-if "hash_to_key" not in st.session_state:
-    st.session_state["hash_to_key"] = {}
-if "key_to_hashes" not in st.session_state:
-    st.session_state["key_to_hashes"] = {}
-if "last_upload_hash" not in st.session_state:
-    st.session_state["last_upload_hash"] = None
+# Wizard step
+if "active_step" not in st.session_state:
+    st.session_state["active_step"] = 1
+if "last_step" not in st.session_state:
+    st.session_state["last_step"] = 1
 
+# Per dataset selections
+if "selections" not in st.session_state:
+    st.session_state["selections"] = {}  # dataset->dict
+if "last_active_dataset" not in st.session_state:
+    st.session_state["last_active_dataset"] = None
+
+# Run results
 if "last_result" not in st.session_state:
     st.session_state["last_result"] = None
 if "last_run_meta" not in st.session_state:
     st.session_state["last_run_meta"] = None
 
-if "active_step" not in st.session_state:
-    st.session_state["active_step"] = 1
-
-if "selections" not in st.session_state:
-    st.session_state["selections"] = {}
-if "last_active_dataset" not in st.session_state:
-    st.session_state["last_active_dataset"] = None
-
+# Search box persist
 if "var_search" not in st.session_state:
     st.session_state["var_search"] = ""
 
@@ -833,25 +836,6 @@ def _delete_dataset(key: str):
             st.session_state["hash_to_key"].pop(h, None)
 
 
-def _load_selection_for_dataset(dataset: str, cols: List[str]):
-    saved = st.session_state["selections"].get(dataset, {})
-    y = saved.get("y")
-    if y not in cols:
-        y = cols[0] if cols else None
-    xs = saved.get("xs", [])
-    xs = [x for x in xs if (x in cols and x != y)]
-
-    y_force = saved.get("y_force", "Tự động")
-    x_force = saved.get("x_force", "Tự động")
-    y_event = saved.get("y_event", None)
-
-    st.session_state["sel_y_widget"] = y
-    st.session_state["sel_xs_widget"] = xs
-    st.session_state["sel_y_force_widget"] = y_force
-    st.session_state["sel_x_force_widget"] = x_force
-    st.session_state["sel_y_event_widget"] = y_event
-
-
 def _save_selection_for_dataset(dataset: str, y: str, xs: List[str], y_force: str, x_force: str, y_event: Optional[str]):
     st.session_state["selections"][dataset] = {
         "y": y,
@@ -862,25 +846,55 @@ def _save_selection_for_dataset(dataset: str, y: str, xs: List[str], y_force: st
     }
 
 
+def _seed_widgets_from_saved(dataset: str, cols: List[str]):
+    """
+    IMPORTANT:
+    - Chỉ seed khi:
+      + dataset mới đổi, hoặc
+      + vừa chuyển bước vào Step 2, hoặc
+      + widget key chưa tồn tại
+    - Không seed mỗi rerun, tránh lỗi "không chọn được Y".
+    """
+    saved = st.session_state["selections"].get(dataset, {})
+    y = saved.get("y")
+    if y not in cols:
+        y = cols[0] if cols else None
+
+    xs = saved.get("xs", [])
+    xs = [x for x in xs if (x in cols and x != y)]
+
+    force_opts = ["Tự động", "Định lượng (numeric)", "Phân loại (categorical)"]
+    y_force = saved.get("y_force", "Tự động")
+    x_force = saved.get("x_force", "Tự động")
+    if y_force not in force_opts:
+        y_force = "Tự động"
+    if x_force not in force_opts:
+        x_force = "Tự động"
+    y_event = saved.get("y_event", None)
+
+    st.session_state["sel_y_widget"] = y
+    st.session_state["sel_xs_widget"] = xs
+    st.session_state["sel_y_force_widget"] = y_force
+    st.session_state["sel_x_force_widget"] = x_force
+    st.session_state["sel_y_event_widget"] = y_event
+
+
 def _persist_current_selection_if_any():
     dataset = st.session_state.get("active_name", None)
-    if (not dataset) or (dataset not in st.session_state.get("datasets", {})):
+    if not dataset or dataset not in st.session_state.get("datasets", {}):
         return
-
     y = st.session_state.get("sel_y_widget", None)
     xs = st.session_state.get("sel_xs_widget", None)
     if y is None or xs is None:
         return
-
     y_force = st.session_state.get("sel_y_force_widget", "Tự động")
     x_force = st.session_state.get("sel_x_force_widget", "Tự động")
     y_event = st.session_state.get("sel_y_event_widget", None)
-
     _save_selection_for_dataset(dataset, y, xs, y_force, x_force, y_event)
 
 
 # =========================
-# Sidebar: upload + dataset manager
+# Sidebar
 # =========================
 with st.sidebar:
     st.markdown("## ⬆️ Upload dữ liệu")
@@ -893,18 +907,19 @@ with st.sidebar:
     if up is not None:
         try:
             raw = up.getvalue()
-            file_hash = _file_sha256(raw)
+            file_hash = _sha256_bytes(raw)
 
+            # Only process if different from the last upload event
             if st.session_state["last_upload_hash"] != file_hash:
                 st.session_state["last_upload_hash"] = file_hash
 
+                # Duplicate file already imported -> just activate
                 if file_hash in st.session_state["hash_to_key"]:
                     existed_key = st.session_state["hash_to_key"][file_hash]
                     st.session_state["active_name"] = existed_key
-                    st.info(f"Đã có trước đó → {existed_key}")
+                    st.info(f"File đã có → chuyển sang dataset: {existed_key}")
                 else:
                     tables = read_file_safely(up)
-
                     if len(tables) > 1:
                         st.session_state["pending_tables"] = tables
                         st.session_state["pending_fname"] = up.name
@@ -919,7 +934,7 @@ with st.sidebar:
                             key = f"{base}_{i}"
                             i += 1
 
-                        df_hash = _df_sha256(df_new)
+                        df_hash = _sha256_df(df_new)
                         _register_dataset(key, df_new, hashes=[file_hash, df_hash])
                         st.session_state["active_step"] = 1
                         st.success(f"Đã tải: {key}")
@@ -938,12 +953,12 @@ with st.sidebar:
         with c1:
             if st.button("Nhập", use_container_width=True):
                 df_new = tables[chosen_table]
-                table_hash = _df_sha256(df_new)
+                table_hash = _sha256_df(df_new)
 
                 if table_hash in st.session_state["hash_to_key"]:
                     existed_key = st.session_state["hash_to_key"][table_hash]
                     st.session_state["active_name"] = existed_key
-                    st.info(f"Đã nhập trước đó → {existed_key}")
+                    st.info(f"Bảng đã có → {existed_key}")
                 else:
                     base = _safe_name(Path(fname).stem)
                     sh = _safe_name(chosen_table)
@@ -982,16 +997,13 @@ with st.sidebar:
         st.info("Chưa có dữ liệu. Hãy upload.")
     else:
         ds_q = st.text_input("Tìm dataset", value="", placeholder="gõ tên dataset...")
-        if ds_q.strip():
-            names = [n for n in names_all if ds_q.lower() in n.lower()] or names_all
-        else:
+        names = [n for n in names_all if ds_q.lower() in n.lower()] if ds_q.strip() else names_all
+        if not names:
             names = names_all
 
         active = st.session_state["active_name"] or names_all[0]
         if active not in names_all:
             active = names_all[0]
-            st.session_state["active_name"] = active
-
         chosen = st.selectbox("Chọn dataset", options=names, index=names.index(active) if active in names else 0)
         st.session_state["active_name"] = chosen
 
@@ -1048,25 +1060,28 @@ with st.sidebar:
                 st.session_state["active_step"] = 1
                 st.session_state["selections"] = {}
                 st.session_state["last_active_dataset"] = None
+                # clear widget keys too
+                for k in ["sel_y_widget", "sel_xs_widget", "sel_y_force_widget", "sel_x_force_widget", "sel_y_event_widget"]:
+                    st.session_state.pop(k, None)
                 st.rerun()
 
 
 # =========================
-# Sticky TOP: Header + Stepper (luôn hiện cả khi chưa có dataset)
+# Sticky TOP: Header + Stepper (LUÔN render)
 # =========================
 top_box = st.container(border=True)
 with top_box:
     st.markdown(
         f"""
-        <div>
-          <h1 style="margin:0;">
-            <span style="color:#ef4444;">🔬</span> {APP_TITLE}
-          </h1>
-          <div class="subline">
-            Upload dữ liệu → chọn biến → kiểm định (1 X) hoặc mô hình (nhiều X) → kết quả + giải thích
-          </div>
-        </div>
-        """,
+<div>
+  <h1 style="margin:0;">
+    <span style="color:#ef4444;">🔬</span> {APP_TITLE}
+  </h1>
+  <div style="color:#6b7280; font-size:0.92rem; margin-top:0.10rem;">
+    Upload dữ liệu → chọn biến → kiểm định (1 X) hoặc mô hình (nhiều X) → kết quả + giải thích
+  </div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 
@@ -1099,33 +1114,34 @@ with top_box:
 
 st.divider()
 
-# ===== Nếu chưa có dataset: vẫn giữ header nhưng chặn phần dưới =====
+# Nếu chưa có dataset: vẫn hiện header, rồi dừng phần dưới
 if not st.session_state["datasets"]:
     st.warning("Chưa có dataset. Hãy upload file ở sidebar bên trái để bắt đầu.")
     st.stop()
 
+
 # =========================
-# Main data
+# Active dataset
 # =========================
 active_name = st.session_state["active_name"] or list(st.session_state["datasets"].keys())[0]
 st.session_state["active_name"] = active_name
 df = st.session_state["datasets"][active_name]
 cols = df.columns.tolist()
 
-# dataset change -> seed widget state
+# Seed widgets when dataset changes
 if st.session_state["last_active_dataset"] != active_name:
     st.session_state["last_active_dataset"] = active_name
-    _load_selection_for_dataset(active_name, cols)
+    _seed_widgets_from_saved(active_name, cols)
 
 
 # =========================
-# Compute and store results
+# Compute and store
 # =========================
 def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_event: Optional[str]):
+    # 1 X -> test
     if len(xs) == 1:
         suggestion, explanation, test_kind = suggest_single_x_test(df, y, xs[0], y_forced=y_force, x_forced=x_force)
         result_df, interp = run_single_x_test(df, y, xs[0], test_kind=test_kind)
-
         st.session_state["last_run_meta"] = {
             "dataset": active_name,
             "mode": "test",
@@ -1140,6 +1156,7 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
         st.session_state["last_result"] = {"table": result_df, "interp": interp}
         return
 
+    # multi X -> model
     tmp_for_suggest = df.copy()
     if y_force == "Định lượng (numeric)":
         tmp_for_suggest[y] = coerce_numeric(tmp_for_suggest[y])
@@ -1183,7 +1200,7 @@ def _compute_and_store(y: str, xs: List[str], y_force: str, x_force: str, y_even
 
 
 # =========================
-# STEP 1
+# STEP 1: Data
 # =========================
 if st.session_state["active_step"] == 1:
     st.subheader("📄 Dữ liệu")
@@ -1223,13 +1240,15 @@ if st.session_state["active_step"] == 1:
 
 
 # =========================
-# STEP 2
+# STEP 2: Select variables (FIX: không bị khóa Y)
 # =========================
 elif st.session_state["active_step"] == 2:
     st.subheader("🎯 Chọn biến")
 
-    # seed lại state khi vào Step 2 (đảm bảo không mất)
-    _load_selection_for_dataset(active_name, cols)
+    # Seed đúng lúc: chỉ khi vừa chuyển sang step 2 hoặc widget chưa có
+    if st.session_state["last_step"] != 2 or ("sel_y_widget" not in st.session_state):
+        _seed_widgets_from_saved(active_name, cols)
+    st.session_state["last_step"] = 2
 
     left, right = st.columns([2.0, 1.0], gap="small")
 
@@ -1242,16 +1261,16 @@ elif st.session_state["active_step"] == 2:
         if not cols_show:
             cols_show = cols
 
+        # Y
         y_current = st.session_state.get("sel_y_widget", cols_show[0])
         if y_current not in cols_show:
             y_current = cols_show[0]
-
         y = st.selectbox("Biến phụ thuộc (Y)", options=cols_show, index=cols_show.index(y_current), key="sel_y_widget")
 
+        # X list
         x_options = [c for c in cols_show if c != y]
         xs_prev = st.session_state.get("sel_xs_widget", [])
         xs_prev = [x for x in xs_prev if x in x_options]
-
         xs = st.multiselect("Biến độc lập (X)", options=x_options, default=xs_prev, key="sel_xs_widget")
 
         force_opts = ["Tự động", "Định lượng (numeric)", "Phân loại (categorical)"]
@@ -1273,6 +1292,7 @@ elif st.session_state["active_step"] == 2:
             st.session_state["sel_x_force_widget"] = "Tự động"
             x_force = "Tự động"
 
+        # event for binary logistic
         y_event = None
         if var_kind(df[y], y_force) == "cat":
             levels = sorted(df[y].dropna().astype(str).unique().tolist())
@@ -1287,7 +1307,7 @@ elif st.session_state["active_step"] == 2:
         else:
             st.session_state["sel_y_event_widget"] = None
 
-        # SAVE ngay khi đang ở Step 2 (để không mất khi bấm sang bước khác)
+        # LƯU NGAY (để quay lại không mất)
         _save_selection_for_dataset(active_name, y, xs, y_force, x_force, y_event)
 
         st.markdown("### ✅ Gợi ý")
@@ -1321,9 +1341,7 @@ elif st.session_state["active_step"] == 2:
         st.markdown("---")
         if st.button("▶️ Run", type="primary", use_container_width=True, disabled=(len(xs_show) == 0)):
             try:
-                # persist lần nữa cho chắc
                 _persist_current_selection_if_any()
-
                 _compute_and_store(
                     y=st.session_state.get("sel_y_widget"),
                     xs=st.session_state.get("sel_xs_widget", []),
@@ -1338,10 +1356,11 @@ elif st.session_state["active_step"] == 2:
 
 
 # =========================
-# STEP 3
+# STEP 3: Results
 # =========================
 else:
     st.subheader("📌 Kết quả")
+    st.session_state["last_step"] = 3
 
     meta = st.session_state.get("last_run_meta")
     res = st.session_state.get("last_result")
@@ -1355,30 +1374,29 @@ else:
 
         st.markdown(
             f"""
-            <div style="border:1px solid rgba(0,0,0,0.08); border-radius:14px; padding:10px;">
-              <div style="display:flex; gap:12px; flex-wrap:wrap;">
-                <div style="min-width:200px;">
-                  <div style="color:#6b7280; font-size:12px;">Dataset</div>
-                  <div style="font-size:15px; font-weight:900;">{meta.get('dataset','-')}</div>
-                </div>
-                <div style="min-width:220px;">
-                  <div style="color:#6b7280; font-size:12px;">Biến phụ thuộc (Y)</div>
-                  <div style="font-size:15px; font-weight:900;">{y_name}</div>
-                </div>
-                <div style="min-width:320px; flex:1;">
-                  <div style="color:#6b7280; font-size:12px;">Biến độc lập (X)</div>
-                  <div style="font-size:15px; font-weight:900;">{x_text}</div>
-                </div>
-              </div>
-              <div style="margin-top:6px; color:#6b7280; font-size:12px;">Gợi ý</div>
-              <div style="font-size:15px; font-weight:900;">{meta.get('suggestion','-')}</div>
-            </div>
-            """,
+<div style="border:1px solid rgba(0,0,0,0.08); border-radius:14px; padding:10px;">
+  <div style="display:flex; gap:12px; flex-wrap:wrap;">
+    <div style="min-width:200px;">
+      <div style="color:#6b7280; font-size:12px;">Dataset</div>
+      <div style="font-size:15px; font-weight:900;">{meta.get('dataset','-')}</div>
+    </div>
+    <div style="min-width:220px;">
+      <div style="color:#6b7280; font-size:12px;">Biến phụ thuộc (Y)</div>
+      <div style="font-size:15px; font-weight:900;">{y_name}</div>
+    </div>
+    <div style="min-width:320px; flex:1;">
+      <div style="color:#6b7280; font-size:12px;">Biến độc lập (X)</div>
+      <div style="font-size:15px; font-weight:900;">{x_text}</div>
+    </div>
+  </div>
+  <div style="margin-top:6px; color:#6b7280; font-size:12px;">Gợi ý</div>
+  <div style="font-size:15px; font-weight:900;">{meta.get('suggestion','-')}</div>
+</div>
+""",
             unsafe_allow_html=True,
         )
 
         st.divider()
-
         left, right = st.columns([1.45, 1.0], gap="small")
 
         with left:
@@ -1442,21 +1460,16 @@ else:
                         tmp = tmp.dropna()
                         fig = px.box(tmp, x=x1, y=y, points="all", title=f"{y} theo nhóm {x1}", height=320)
                         st.plotly_chart(fig, use_container_width=True)
-
                     elif yk == "cat" and xk == "num":
                         tmp[x1] = coerce_numeric(tmp[x1])
                         tmp = tmp.dropna()
                         fig = px.box(tmp, x=y, y=x1, points="all", title=f"{x1} theo nhóm {y}", height=320)
                         st.plotly_chart(fig, use_container_width=True)
-
                     elif yk == "cat" and xk == "cat":
                         tab = pd.crosstab(tmp[y].astype(str), tmp[x1].astype(str))
-                        tab2 = tab.div(tab.sum(axis=1), axis=0).reset_index().melt(
-                            id_vars=[y], var_name=x1, value_name="Tỷ lệ"
-                        )
+                        tab2 = tab.div(tab.sum(axis=1), axis=0).reset_index().melt(id_vars=[y], var_name=x1, value_name="Tỷ lệ")
                         fig = px.bar(tab2, x=y, y="Tỷ lệ", color=x1, barmode="stack", title="Tỷ lệ theo nhóm", height=320)
                         st.plotly_chart(fig, use_container_width=True)
-
                     else:
                         tmp[y] = coerce_numeric(tmp[y])
                         tmp[x1] = coerce_numeric(tmp[x1])
@@ -1500,7 +1513,6 @@ else:
                         fn = int(((y_true == 1) & (y_pred == 0)).sum())
                         st.write("**Bảng nhầm lẫn (ngưỡng 0.5):**")
                         st.table(pd.DataFrame({"Dự đoán 0": [tn, fn], "Dự đoán 1": [fp, tp]}, index=["Thực tế 0", "Thực tế 1"]))
-
                     else:
                         st.info("Multinomial: biểu đồ sẽ được bổ sung theo nhu cầu.")
             except Exception as e:
